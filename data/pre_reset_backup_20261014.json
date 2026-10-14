@@ -1,0 +1,717 @@
+{
+  "admins": [
+    {
+      "id": "ADM-001",
+      "username": "admin",
+      "email": "admin@nexgrid.et",
+      "passwordHash": "87a6dc7afeb90ae1ff5162d69bf572dc4daf394f110ce39a9c9fd0d5790594ecb6966a1859a63652f5757bc1ebc2e95530e8077a7f36727503f347982000b7e9",
+      "salt": "cd5faafad27d1270a5fbf4bebd79fd6d",
+      "fullName": "System Administrator",
+      "role": "super_admin",
+      "createdAt": "2026-10-14T09:10:45.978Z",
+      "lastLoginAt": "2026-10-14T10:58:02.309Z"
+    }
+  ],
+  "customers": [
+    {
+      "id": "CUST-1001",
+      "businessName": "Addis Tech Solutions PLC",
+      "contactPerson": "Dawit Abebe",
+      "phone": "+251911223344",
+      "email": "dawit@addistech.et",
+      "billingAddress": "Kazanchis, Addis Ababa",
+      "notes": "Premium client. Uses dedicated cloud VPS and .et domain registration.",
+      "status": "active",
+      "createdAt": "2026-01-15T08:30:00.000Z",
+      "updatedAt": "2026-01-15T08:30:00.000Z"
+    },
+    {
+      "id": "CUST-1002",
+      "businessName": "Rift Valley Agro Exports",
+      "contactPerson": "Selamawit Tadesse",
+      "phone": "+251922334455",
+      "email": "selam@riftvalleyagro.com",
+      "billingAddress": "Adama Industrial Zone & Addis HQ",
+      "notes": "Coffee & sesame exporter. Multiple country-code domains.",
+      "status": "active",
+      "createdAt": "2026-02-01T10:00:00.000Z",
+      "updatedAt": "2026-02-01T10:00:00.000Z"
+    },
+    {
+      "id": "CUST-1003",
+      "businessName": "Zemen Logistics & Cargo",
+      "contactPerson": "Kaleb Getachew",
+      "phone": "+251933445566",
+      "email": "kaleb@zemenlogistics.et",
+      "billingAddress": "Bole Cargo Village, Addis Ababa",
+      "notes": "Fleet tracking and logistics portal domains.",
+      "status": "active",
+      "createdAt": "2026-02-20T14:15:00.000Z",
+      "updatedAt": "2026-02-20T14:15:00.000Z"
+    },
+    {
+      "id": "CUST-1004",
+      "businessName": "Habesha Media & Production",
+      "contactPerson": "Bethelhem Haile",
+      "phone": "+251944556677",
+      "email": "betty@habeshamedia.tv",
+      "billingAddress": "Sarbet, Addis Ababa",
+      "notes": "Digital broadcast and streaming web portal.",
+      "status": "active",
+      "createdAt": "2026-03-05T09:45:00.000Z",
+      "updatedAt": "2026-03-05T09:45:00.000Z"
+    },
+    {
+      "id": "CUST-1005",
+      "businessName": "BlueNile Creative Agency",
+      "contactPerson": "Yared Mekonnen",
+      "phone": "+251955667788",
+      "email": "yared@bluenilecreative.com",
+      "billingAddress": "Piassa, Arada Subcity",
+      "notes": "Creative studio. Website and annual hosting retainer.",
+      "status": "active",
+      "createdAt": "2026-03-12T11:20:00.000Z",
+      "updatedAt": "2026-03-12T11:20:00.000Z"
+    }
+  ],
+  "domains": [
+    {
+      "id": "DOM-1001",
+      "customerId": "CUST-1001",
+      "domainName": "addistech.et",
+      "registrationDate": "2025-10-20T00:00:00.000Z",
+      "expirationDate": "2026-10-20T00:00:00.000Z",
+      "renewalPrice": 3500,
+      "registrationPeriodYears": 1,
+      "registrar": "Ethio Telecom (.et ccTLD Registry)",
+      "status": "expiring_soon",
+      "notes": "Primary corporate .et domain. Priority renewal.",
+      "renewalHistory": [],
+      "createdAt": "2025-10-20T00:00:00.000Z",
+      "updatedAt": "2026-10-01T00:00:00.000Z",
+      "sentReminderIntervals": [
+        30,
+        14,
+        7
+      ],
+      "lastReminderSentAt": "2026-10-14T09:10:47.894Z"
+    },
+    {
+      "id": "DOM-1002",
+      "customerId": "CUST-1001",
+      "domainName": "addistech-cloud.com",
+      "registrationDate": "2026-01-10T00:00:00.000Z",
+      "expirationDate": "2027-01-10T00:00:00.000Z",
+      "renewalPrice": 2800,
+      "registrationPeriodYears": 1,
+      "registrar": "Namecheap / NexGrid Reseller",
+      "status": "active",
+      "notes": "Global SaaS domain",
+      "renewalHistory": [],
+      "createdAt": "2026-01-10T00:00:00.000Z",
+      "updatedAt": "2026-01-10T00:00:00.000Z",
+      "sentReminderIntervals": []
+    },
+    {
+      "id": "DOM-1003",
+      "customerId": "CUST-1002",
+      "domainName": "riftvalleyagro.com",
+      "registrationDate": "2025-10-16T00:00:00.000Z",
+      "expirationDate": "2026-10-16T00:00:00.000Z",
+      "renewalPrice": 2900,
+      "registrationPeriodYears": 1,
+      "registrar": "GoDaddy / NexGrid Reseller",
+      "status": "expiring_soon",
+      "notes": "Automated notification dispatched for 3-day reminder.",
+      "renewalHistory": [],
+      "createdAt": "2025-10-16T00:00:00.000Z",
+      "updatedAt": "2026-10-05T00:00:00.000Z",
+      "sentReminderIntervals": [
+        30,
+        14,
+        7,
+        3
+      ],
+      "lastReminderSentAt": "2026-10-14T09:10:47.895Z"
+    },
+    {
+      "id": "DOM-1004",
+      "customerId": "CUST-1003",
+      "domainName": "zemenlogistics.et",
+      "registrationDate": "2025-09-25T00:00:00.000Z",
+      "expirationDate": "2026-09-25T00:00:00.000Z",
+      "renewalPrice": 3500,
+      "registrationPeriodYears": 1,
+      "registrar": "Ethio Telecom (.et ccTLD Registry)",
+      "status": "expired",
+      "notes": "Pending customer payment before grace period closes.",
+      "renewalHistory": [],
+      "createdAt": "2025-09-25T00:00:00.000Z",
+      "updatedAt": "2026-09-26T00:00:00.000Z",
+      "sentReminderIntervals": []
+    },
+    {
+      "id": "DOM-1005",
+      "customerId": "CUST-1004",
+      "domainName": "habeshamedia.tv",
+      "registrationDate": "2024-05-15T00:00:00.000Z",
+      "expirationDate": "2027-05-15T00:00:00.000Z",
+      "renewalPrice": 4200,
+      "registrationPeriodYears": 2,
+      "registrar": "Porkbun / NexGrid Reseller",
+      "status": "renewed",
+      "notes": "Renewed for 2-year cycle in May 2025.",
+      "renewalHistory": [
+        {
+          "id": "RENEW-01",
+          "date": "2025-05-10T12:00:00.000Z",
+          "previousExpDate": "2025-05-15T00:00:00.000Z",
+          "newExpDate": "2027-05-15T00:00:00.000Z",
+          "renewalPrice": 8400,
+          "periodYears": 2,
+          "recordedBy": "System Administrator",
+          "notes": "Customer paid via Bank Transfer ahead of time."
+        }
+      ],
+      "createdAt": "2024-05-15T00:00:00.000Z",
+      "updatedAt": "2025-05-10T12:00:00.000Z",
+      "sentReminderIntervals": []
+    },
+    {
+      "id": "DOM-1006",
+      "customerId": "CUST-1005",
+      "domainName": "bluenilecreative.com",
+      "registrationDate": "2026-03-12T00:00:00.000Z",
+      "expirationDate": "2027-03-12T00:00:00.000Z",
+      "renewalPrice": 2800,
+      "registrationPeriodYears": 1,
+      "registrar": "Namecheap / NexGrid Reseller",
+      "status": "active",
+      "notes": "Clean active domain.",
+      "renewalHistory": [],
+      "createdAt": "2026-03-12T00:00:00.000Z",
+      "updatedAt": "2026-03-12T00:00:00.000Z",
+      "sentReminderIntervals": []
+    }
+  ],
+  "invoices": [
+    {
+      "id": "INV-2026-001",
+      "customerId": "CUST-1001",
+      "issueDate": "2026-10-01",
+      "dueDate": "2026-10-18",
+      "currency": "ETB",
+      "items": [
+        {
+          "id": "item-1",
+          "description": "Annual Domain Renewal: addistech.et (1 Year)",
+          "quantity": 1,
+          "unitPrice": 3500,
+          "total": 3500
+        },
+        {
+          "id": "item-2",
+          "description": "Managed Cloud DNS & Security Maintenance",
+          "quantity": 1,
+          "unitPrice": 1500,
+          "total": 1500
+        }
+      ],
+      "subtotal": 5000,
+      "taxRate": 15,
+      "taxAmount": 750,
+      "discountAmount": 0,
+      "total": 5750,
+      "notes": "Please quote invoice number on bank transfer reference.",
+      "paymentInstructions": "Bank Transfer to Commercial Bank of Ethiopia (CBE) A/C: 1000234567890 (NexGrid Digital Systems) or Telebirr: 0911234567.",
+      "terms": "Payment is due within 15 calendar days from the invoice date. Service uninterrupted upon confirmation.",
+      "status": "partially_paid",
+      "createdAt": "2026-10-01T09:00:00.000Z",
+      "updatedAt": "2026-10-05T14:00:00.000Z"
+    },
+    {
+      "id": "INV-2026-002",
+      "customerId": "CUST-1002",
+      "issueDate": "2026-09-28",
+      "dueDate": "2026-10-15",
+      "currency": "ETB",
+      "items": [
+        {
+          "id": "item-1",
+          "description": "Domain Renewal: riftvalleyagro.com (1 Year)",
+          "quantity": 1,
+          "unitPrice": 2900,
+          "total": 2900
+        }
+      ],
+      "subtotal": 2900,
+      "taxRate": 15,
+      "taxAmount": 435,
+      "discountAmount": 0,
+      "total": 3335,
+      "notes": "Urgent renewal due before Oct 16, 2026.",
+      "paymentInstructions": "Bank: Awash Bank A/C: 0142567891000 (NexGrid Digital Systems) or Telebirr: 0911234567.",
+      "terms": "Strict due date before registry drop.",
+      "status": "unpaid",
+      "createdAt": "2026-09-28T10:30:00.000Z",
+      "updatedAt": "2026-09-28T10:30:00.000Z"
+    },
+    {
+      "id": "INV-2026-003",
+      "customerId": "CUST-1003",
+      "issueDate": "2026-09-10",
+      "dueDate": "2026-09-24",
+      "currency": "ETB",
+      "items": [
+        {
+          "id": "item-1",
+          "description": "Domain Renewal & Ethio Telecom ccTLD Fee: zemenlogistics.et",
+          "quantity": 1,
+          "unitPrice": 3500,
+          "total": 3500
+        }
+      ],
+      "subtotal": 3500,
+      "taxRate": 15,
+      "taxAmount": 525,
+      "discountAmount": 0,
+      "total": 4025,
+      "notes": "Domain currently in expired hold.",
+      "paymentInstructions": "CBE A/C: 1000234567890 or Telebirr: 0911234567.",
+      "terms": "Due immediately to reinstate registry record.",
+      "status": "overdue",
+      "createdAt": "2026-09-10T11:00:00.000Z",
+      "updatedAt": "2026-09-25T00:00:00.000Z"
+    },
+    {
+      "id": "INV-2026-004",
+      "customerId": "CUST-1005",
+      "issueDate": "2026-08-15",
+      "dueDate": "2026-08-30",
+      "currency": "ETB",
+      "items": [
+        {
+          "id": "item-1",
+          "description": "Corporate Web Portal Setup & Cloud Hosting Retainer",
+          "quantity": 1,
+          "unitPrice": 18000,
+          "total": 18000
+        },
+        {
+          "id": "item-2",
+          "description": "Domain Registration: bluenilecreative.com (1 Year)",
+          "quantity": 1,
+          "unitPrice": 2800,
+          "total": 2800
+        }
+      ],
+      "subtotal": 20800,
+      "taxRate": 15,
+      "taxAmount": 3120,
+      "discountAmount": 1000,
+      "total": 22920,
+      "notes": "Promotional discount applied for bundle package.",
+      "paymentInstructions": "CBE A/C: 1000234567890.",
+      "terms": "Paid in full.",
+      "status": "paid",
+      "createdAt": "2026-08-15T09:00:00.000Z",
+      "updatedAt": "2026-08-20T16:00:00.000Z"
+    }
+  ],
+  "quotations": [
+    {
+      "id": "QUO-2026-001",
+      "customerId": "CUST-1004",
+      "issueDate": "2026-10-05",
+      "validUntil": "2026-11-05",
+      "currency": "ETB",
+      "items": [
+        {
+          "id": "item-1",
+          "description": "Multi-Region CDN & High-Bandwidth Video Delivery Server",
+          "quantity": 1,
+          "unitPrice": 45000,
+          "total": 45000
+        },
+        {
+          "id": "item-2",
+          "description": "SSL Wildcard Certificate (2-Year)",
+          "quantity": 1,
+          "unitPrice": 6500,
+          "total": 6500
+        }
+      ],
+      "subtotal": 51500,
+      "taxRate": 15,
+      "taxAmount": 7725,
+      "discountAmount": 2000,
+      "total": 57225,
+      "notes": "Custom media streaming quote for Q4 broadcast schedule.",
+      "paymentInstructions": "50% advance upon contract signing, 50% upon deployment.",
+      "terms": "Quotation valid for 30 calendar days from issue date.",
+      "status": "sent",
+      "createdAt": "2026-10-05T13:00:00.000Z",
+      "updatedAt": "2026-10-05T13:00:00.000Z"
+    }
+  ],
+  "payments": [
+    {
+      "id": "PAY-2026-001",
+      "customerId": "CUST-1005",
+      "invoiceId": "INV-2026-004",
+      "amount": 22920,
+      "currency": "ETB",
+      "paymentDate": "2026-08-20T15:30:00.000Z",
+      "paymentMethod": "bank_transfer",
+      "referenceNumber": "CBE-TX-8941203",
+      "notes": "Full payment for invoice INV-2026-004 confirmed via CBE slip.",
+      "recordedBy": "System Administrator",
+      "status": "confirmed",
+      "createdAt": "2026-08-20T16:00:00.000Z",
+      "updatedAt": "2026-08-20T16:00:00.000Z"
+    },
+    {
+      "id": "PAY-2026-002",
+      "customerId": "CUST-1001",
+      "invoiceId": "INV-2026-001",
+      "amount": 3000,
+      "currency": "ETB",
+      "paymentDate": "2026-10-05T11:20:00.000Z",
+      "paymentMethod": "telebirr",
+      "referenceNumber": "TB-88912344",
+      "notes": "Partial payment received for INV-2026-001. Remaining balance: 2,750 ETB.",
+      "recordedBy": "System Administrator",
+      "status": "confirmed",
+      "createdAt": "2026-10-05T14:00:00.000Z",
+      "updatedAt": "2026-10-05T14:00:00.000Z"
+    }
+  ],
+  "templates": [
+    {
+      "id": "tmpl-welcome-sms",
+      "type": "welcome",
+      "channel": "sms",
+      "name": "Customer Welcome SMS",
+      "bodyTemplate": "Hello [Customer Name], welcome to NexGrid Digital Systems! Thank you for choosing our services. For assistance, please contact us at [Business Contact].",
+      "variables": [
+        "[Customer Name]",
+        "[Business Contact]",
+        "[Business Phone]",
+        "[Business Email]"
+      ],
+      "updatedAt": "2026-10-14T09:10:42.879Z"
+    },
+    {
+      "id": "tmpl-domain-reminder-sms",
+      "type": "domain_reminder",
+      "channel": "sms",
+      "name": "Domain Expiration Reminder SMS",
+      "bodyTemplate": "Hello [Customer Name], your domain [Domain Name] is scheduled to expire on [Expiration Date] ([Days Remaining] days left). Renewal price: [Amount] [Currency]. Please contact NexGrid Digital Systems to arrange renewal.",
+      "variables": [
+        "[Customer Name]",
+        "[Domain Name]",
+        "[Expiration Date]",
+        "[Days Remaining]",
+        "[Amount]",
+        "[Currency]",
+        "[Business Contact]"
+      ],
+      "updatedAt": "2026-10-14T09:10:42.880Z"
+    },
+    {
+      "id": "tmpl-payment-confirm-sms",
+      "type": "payment_confirmation",
+      "channel": "sms",
+      "name": "Payment Confirmation SMS",
+      "bodyTemplate": "Hello [Customer Name], we have confirmed your payment of [Amount] [Currency] received on [Payment Date] for [Service/Invoice Number]. Remaining balance: [Balance] [Currency]. Thank you for choosing NexGrid Digital Systems.",
+      "variables": [
+        "[Customer Name]",
+        "[Amount]",
+        "[Currency]",
+        "[Payment Date]",
+        "[Service/Invoice Number]",
+        "[Balance]"
+      ],
+      "updatedAt": "2026-10-14T09:10:42.880Z"
+    },
+    {
+      "id": "tmpl-invoice-reminder-sms",
+      "type": "invoice_reminder",
+      "channel": "sms",
+      "name": "Invoice Payment Reminder SMS",
+      "bodyTemplate": "Hello [Customer Name], this is a reminder from NexGrid Digital Systems regarding invoice [Invoice Number] for [Amount] [Currency], due on [Due Date]. Please arrange payment to avoid service disruption.",
+      "variables": [
+        "[Customer Name]",
+        "[Invoice Number]",
+        "[Amount]",
+        "[Currency]",
+        "[Due Date]",
+        "[Business Contact]"
+      ],
+      "updatedAt": "2026-10-14T09:10:42.880Z"
+    },
+    {
+      "id": "tmpl-welcome-email",
+      "type": "welcome",
+      "channel": "email",
+      "name": "Customer Welcome Email",
+      "subject": "Welcome to NexGrid Digital Systems",
+      "bodyTemplate": "Dear [Customer Name],\n\nWelcome to NexGrid Digital Systems! We are pleased to provide enterprise digital solutions, cloud infrastructure, and domain management services for your business.\n\nShould you require any assistance, please reach out to our support team at [Business Contact] or [Business Email].\n\nBest regards,\nNexGrid Digital Systems Management Team",
+      "variables": [
+        "[Customer Name]",
+        "[Business Contact]",
+        "[Business Email]",
+        "[Business Phone]"
+      ],
+      "updatedAt": "2026-10-14T09:10:42.880Z"
+    }
+  ],
+  "messageLogs": [
+    {
+      "id": "MSG-1791969047895-499",
+      "customerId": "CUST-1002",
+      "customerName": "Rift Valley Agro Exports",
+      "recipient": "+251922334455",
+      "channel": "sms",
+      "messageType": "domain_reminder",
+      "content": "Hello Rift Valley Agro Exports, your domain riftvalleyagro.com is scheduled to expire on 2026-10-16 (2 days left). Renewal price: 2,900 ETB. Please contact NexGrid Digital Systems to arrange renewal.",
+      "status": "failed",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-10-14T09:10:47.895Z",
+      "domainId": "DOM-1003",
+      "reminderInterval": 3,
+      "createdAt": "2026-10-14T09:10:47.895Z",
+      "errorDetails": "SMS Ethiopia API key is not configured in Settings. Please provide your API Key."
+    },
+    {
+      "id": "MSG-1791969047894-580",
+      "customerId": "CUST-1002",
+      "customerName": "Rift Valley Agro Exports",
+      "recipient": "+251922334455",
+      "channel": "sms",
+      "messageType": "domain_reminder",
+      "content": "Hello Rift Valley Agro Exports, your domain riftvalleyagro.com is scheduled to expire on 2026-10-16 (2 days left). Renewal price: 2,900 ETB. Please contact NexGrid Digital Systems to arrange renewal.",
+      "status": "failed",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-10-14T09:10:47.894Z",
+      "domainId": "DOM-1003",
+      "reminderInterval": 7,
+      "createdAt": "2026-10-14T09:10:47.894Z",
+      "errorDetails": "SMS Ethiopia API key is not configured in Settings. Please provide your API Key."
+    },
+    {
+      "id": "MSG-1791969047894-383",
+      "customerId": "CUST-1002",
+      "customerName": "Rift Valley Agro Exports",
+      "recipient": "+251922334455",
+      "channel": "sms",
+      "messageType": "domain_reminder",
+      "content": "Hello Rift Valley Agro Exports, your domain riftvalleyagro.com is scheduled to expire on 2026-10-16 (2 days left). Renewal price: 2,900 ETB. Please contact NexGrid Digital Systems to arrange renewal.",
+      "status": "failed",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-10-14T09:10:47.894Z",
+      "domainId": "DOM-1003",
+      "reminderInterval": 14,
+      "createdAt": "2026-10-14T09:10:47.894Z",
+      "errorDetails": "SMS Ethiopia API key is not configured in Settings. Please provide your API Key."
+    },
+    {
+      "id": "MSG-1791969047894-478",
+      "customerId": "CUST-1002",
+      "customerName": "Rift Valley Agro Exports",
+      "recipient": "+251922334455",
+      "channel": "sms",
+      "messageType": "domain_reminder",
+      "content": "Hello Rift Valley Agro Exports, your domain riftvalleyagro.com is scheduled to expire on 2026-10-16 (2 days left). Renewal price: 2,900 ETB. Please contact NexGrid Digital Systems to arrange renewal.",
+      "status": "failed",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-10-14T09:10:47.894Z",
+      "domainId": "DOM-1003",
+      "reminderInterval": 30,
+      "createdAt": "2026-10-14T09:10:47.894Z",
+      "errorDetails": "SMS Ethiopia API key is not configured in Settings. Please provide your API Key."
+    },
+    {
+      "id": "MSG-1791969047893-259",
+      "customerId": "CUST-1001",
+      "customerName": "Addis Tech Solutions PLC",
+      "recipient": "+251911223344",
+      "channel": "sms",
+      "messageType": "domain_reminder",
+      "content": "Hello Addis Tech Solutions PLC, your domain addistech.et is scheduled to expire on 2026-10-20 (6 days left). Renewal price: 3,500 ETB. Please contact NexGrid Digital Systems to arrange renewal.",
+      "status": "failed",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-10-14T09:10:47.893Z",
+      "domainId": "DOM-1001",
+      "reminderInterval": 7,
+      "createdAt": "2026-10-14T09:10:47.893Z",
+      "errorDetails": "SMS Ethiopia API key is not configured in Settings. Please provide your API Key."
+    },
+    {
+      "id": "MSG-1791969047892-199",
+      "customerId": "CUST-1001",
+      "customerName": "Addis Tech Solutions PLC",
+      "recipient": "+251911223344",
+      "channel": "sms",
+      "messageType": "domain_reminder",
+      "content": "Hello Addis Tech Solutions PLC, your domain addistech.et is scheduled to expire on 2026-10-20 (6 days left). Renewal price: 3,500 ETB. Please contact NexGrid Digital Systems to arrange renewal.",
+      "status": "failed",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-10-14T09:10:47.892Z",
+      "domainId": "DOM-1001",
+      "reminderInterval": 14,
+      "createdAt": "2026-10-14T09:10:47.892Z",
+      "errorDetails": "SMS Ethiopia API key is not configured in Settings. Please provide your API Key."
+    },
+    {
+      "id": "MSG-1791969047891-621",
+      "customerId": "CUST-1001",
+      "customerName": "Addis Tech Solutions PLC",
+      "recipient": "+251911223344",
+      "channel": "sms",
+      "messageType": "domain_reminder",
+      "content": "Hello Addis Tech Solutions PLC, your domain addistech.et is scheduled to expire on 2026-10-20 (6 days left). Renewal price: 3,500 ETB. Please contact NexGrid Digital Systems to arrange renewal.",
+      "status": "failed",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-10-14T09:10:47.892Z",
+      "domainId": "DOM-1001",
+      "reminderInterval": 30,
+      "createdAt": "2026-10-14T09:10:47.891Z",
+      "errorDetails": "SMS Ethiopia API key is not configured in Settings. Please provide your API Key."
+    },
+    {
+      "id": "MSG-001",
+      "customerId": "CUST-1001",
+      "customerName": "Addis Tech Solutions PLC",
+      "recipient": "+251911223344",
+      "channel": "sms",
+      "messageType": "payment_confirmation",
+      "content": "Hello Addis Tech Solutions PLC, we have confirmed your payment of 3,000.00 ETB received on 2026-10-05 for INV-2026-001. Remaining balance: 2,750.00 ETB. Thank you for choosing NexGrid Digital Systems.",
+      "providerReference": "SIM-SMS-20261005-01",
+      "status": "delivered",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-10-05T14:02:00.000Z",
+      "createdAt": "2026-10-05T14:01:00.000Z"
+    },
+    {
+      "id": "MSG-002",
+      "customerId": "CUST-1002",
+      "customerName": "Rift Valley Agro Exports",
+      "recipient": "+251922334455",
+      "channel": "sms",
+      "messageType": "domain_reminder",
+      "content": "Hello Rift Valley Agro Exports, your domain riftvalleyagro.com is scheduled to expire on 2026-10-16 (2 days left). Renewal price: 2,900.00 ETB. Please contact NexGrid Digital Systems to arrange renewal.",
+      "providerReference": "SIM-SMS-20261014-01",
+      "status": "sent",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-10-14T01:30:00.000Z",
+      "domainId": "DOM-1003",
+      "reminderInterval": 2,
+      "createdAt": "2026-10-14T01:30:00.000Z"
+    }
+  ],
+  "auditLogs": [
+    {
+      "id": "AUD-1791975482310-961",
+      "timestamp": "2026-10-14T10:58:02.310Z",
+      "adminId": "ADM-001",
+      "adminName": "System Administrator",
+      "action": "ADMIN_LOGIN",
+      "entityType": "auth",
+      "entityId": "ADM-001",
+      "details": "Admin admin logged in successfully",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "AUD-1791969046038-181",
+      "timestamp": "2026-10-14T09:10:46.038Z",
+      "adminId": "ADM-001",
+      "adminName": "System Administrator",
+      "action": "ADMIN_LOGIN",
+      "entityType": "auth",
+      "entityId": "ADM-001",
+      "details": "Admin admin logged in successfully",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "AUD-001",
+      "timestamp": "2026-08-20T16:00:00.000Z",
+      "adminId": "ADM-001",
+      "adminName": "System Administrator",
+      "action": "PAYMENT_CONFIRMED",
+      "entityType": "payment",
+      "entityId": "PAY-2026-001",
+      "details": "Confirmed payment of 22,920 ETB for invoice INV-2026-004 (CUST-1005)"
+    },
+    {
+      "id": "AUD-002",
+      "timestamp": "2026-10-01T09:00:00.000Z",
+      "adminId": "ADM-001",
+      "adminName": "System Administrator",
+      "action": "INVOICE_CREATED",
+      "entityType": "invoice",
+      "entityId": "INV-2026-001",
+      "details": "Created invoice INV-2026-001 for customer CUST-1001 (5,750 ETB)"
+    },
+    {
+      "id": "AUD-003",
+      "timestamp": "2026-10-05T14:00:00.000Z",
+      "adminId": "ADM-001",
+      "adminName": "System Administrator",
+      "action": "PAYMENT_CONFIRMED",
+      "entityType": "payment",
+      "entityId": "PAY-2026-002",
+      "details": "Confirmed partial payment of 3,000 ETB for invoice INV-2026-001"
+    }
+  ],
+  "settings": {
+    "general": {
+      "businessName": "NexGrid Digital Systems",
+      "businessContact": "+251 911 234 567",
+      "businessEmail": "support@nexgrid.et",
+      "businessPhone": "+251 911 234 567",
+      "businessAddress": "Bole Medhanialem, Commercial Center 4th Floor, Addis Ababa, Ethiopia",
+      "tinNumber": "0054892147",
+      "currency": "ETB",
+      "timezone": "Africa/Addis_Ababa",
+      "inactivityTimeoutMinutes": 60
+    },
+    "sms": {
+      "provider": "sms_et",
+      "apiEndpoint": "https://sms.et/api/v1/send",
+      "apiKey": "",
+      "senderId": "NexGrid",
+      "enabled": true,
+      "autoWelcome": true,
+      "autoPaymentConfirm": true,
+      "autoDomainReminders": true,
+      "autoInvoiceReminders": true
+    },
+    "email": {
+      "smtpHost": "smtp.gmail.com",
+      "smtpPort": 587,
+      "smtpUser": "notifications@nexgrid.et",
+      "smtpPass": "",
+      "fromEmail": "notifications@nexgrid.et",
+      "fromName": "NexGrid Digital Systems",
+      "enabled": false
+    },
+    "reminders": {
+      "domainReminderDays": [
+        30,
+        14,
+        7,
+        3,
+        1
+      ],
+      "invoiceReminderDays": [
+        7,
+        3,
+        1,
+        -1,
+        -3
+      ],
+      "lastSchedulerRun": "2026-10-14T10:53:44.907Z"
+    }
+  }
+}

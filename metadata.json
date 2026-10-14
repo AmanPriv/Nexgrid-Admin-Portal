@@ -1,0 +1,8 @@
+{
+  "name": "NexGrid Admin Portal",
+  "description": "Secure Customer Management System (CMS) for NexGrid Digital Systems to manage customers, domains, invoices, quotations, payments, and automated SMS Ethiopia notifications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
