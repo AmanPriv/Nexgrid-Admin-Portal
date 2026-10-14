@@ -42,6 +42,25 @@ export function clearStoredToken() {
   localStorage.removeItem(CSRF_KEY);
 }
 
+// Configurable API base for external deployment (e.g. Render, Railway, VPS, GitHub Pages)
+export function getApiBase(): string {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('nexgrid_custom_api_url');
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/$/, '');
+    }
+  }
+  return (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
+}
+
+export function setCustomApiUrl(url: string | null) {
+  if (!url || !url.trim()) {
+    localStorage.removeItem('nexgrid_custom_api_url');
+  } else {
+    localStorage.setItem('nexgrid_custom_api_url', url.trim().replace(/\/$/, ''));
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
   const csrf = getStoredCsrf();
@@ -60,10 +79,20 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(endpoint, {
-    ...options,
-    headers,
-  });
+  const apiBase = getApiBase();
+  const fullUrl = endpoint.startsWith('http') ? endpoint : `${apiBase}${endpoint}`;
+
+  let response: Response;
+  try {
+    response = await fetch(fullUrl, {
+      ...options,
+      headers,
+    });
+  } catch (netErr: any) {
+    throw new Error(
+      `Cannot connect to NexGrid backend API at ${fullUrl}. Ensure your Node server is running: ${netErr.message}`
+    );
+  }
 
   if (response.status === 401) {
     clearStoredToken();
@@ -74,7 +103,18 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     throw new Error(errData.error || 'Session expired or authentication failed.');
   }
 
-  const data = await response.json().catch(() => ({}));
+  let data: any = {};
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    data = await response.json().catch(() => ({}));
+  } else {
+    // Non-JSON response (e.g., static server returning 404 HTML on GitHub Pages)
+    if (!response.ok) {
+      throw new Error(
+        `Backend API returned HTTP ${response.status} (${response.statusText}). If hosting statically on GitHub Pages, please deploy the Node.js backend or configure VITE_API_URL.`
+      );
+    }
+  }
 
   if (!response.ok) {
     const errorMsg = data.error || `Request failed with status ${response.status}`;

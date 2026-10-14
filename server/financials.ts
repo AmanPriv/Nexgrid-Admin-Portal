@@ -1,4 +1,4 @@
-import { getDb, saveDb, Invoice, Payment, Quotation } from './db.js';
+import { getDb, saveDb, type Invoice, type Payment, type Quotation } from './db.ts';
 
 export interface FinancialSummary {
   totalInvoiced: number;

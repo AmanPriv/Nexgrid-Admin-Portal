@@ -1,5 +1,5 @@
-import { getDb, saveDb, logAudit } from './db.js';
-import { queueAndSendSms, renderTemplate } from './sms.js';
+import { getDb, saveDb, logAudit } from './db.ts';
+import { queueAndSendSms, renderTemplate } from './sms.ts';
 
 export interface SchedulerRunResult {
   runAt: string;

@@ -1,4 +1,4 @@
-import { getDb, saveDb, MessageLog, MessageTemplate } from './db.js';
+import { getDb, saveDb, type MessageLog, type MessageTemplate } from './db.ts';
 
 export interface SendSmsResult {
   success: boolean;

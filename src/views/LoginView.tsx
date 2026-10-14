@@ -17,8 +17,15 @@ import {
   ShieldCheck,
   Check,
   Clock,
+  Server,
+  ExternalLink,
+  HelpCircle,
+  Globe,
+  Terminal,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
-import { api } from '../services/api.ts';
+import { api, getApiBase, setCustomApiUrl } from '../services/api.ts';
 import { AdminUser } from '../types.ts';
 
 interface LoginViewProps {
@@ -80,6 +87,28 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [resetStep, setResetStep] = useState<'request' | 'verify'>('request');
   const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [apiConnectionError, setApiConnectionError] = useState<string | null>(null);
+
+  // External / Multi-Host API URL configuration (e.g. GitHub Pages frontend -> Render backend)
+  const [customApiUrl, setCustomApiUrlState] = useState(() => getApiBase());
+  const [showApiConfig, setShowApiConfig] = useState(false);
+  const [showDeployGuide, setShowDeployGuide] = useState(false);
+  const [apiSaveSuccess, setApiSaveSuccess] = useState(false);
+
+  const handleSaveApiUrl = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCustomApiUrl(customApiUrl);
+    setApiSaveSuccess(true);
+    setTimeout(() => setApiSaveSuccess(false), 2000);
+    checkStatus();
+  };
+
+  const handleResetApiUrl = () => {
+    setCustomApiUrl(null);
+    setCustomApiUrlState('');
+    setShowApiConfig(false);
+    checkStatus();
+  };
 
   // Check setup status on mount
   useEffect(() => {
@@ -97,6 +126,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
   const checkStatus = async () => {
     setCheckingSetup(true);
+    setApiConnectionError(null);
     try {
       const res = await api.getSetupStatus();
       setSetupRequired(res.setupRequired);
@@ -106,6 +136,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       }
     } catch (err: any) {
       console.error('Error checking setup status:', err);
+      setApiConnectionError(
+        err.message || 'Cannot connect to backend server. Make sure the Node.js server is running.'
+      );
     } finally {
       setCheckingSetup(false);
     }
@@ -361,6 +394,129 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             Customer Management System • Internal Administrative Portal
           </p>
         </div>
+
+        {apiConnectionError && (
+          <div className="mb-6 p-5 rounded-2xl border border-amber-500/40 bg-slate-900/95 backdrop-blur-md shadow-2xl text-xs space-y-3">
+            <div className="flex items-start gap-2.5 font-semibold text-amber-300">
+              <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-sm font-bold text-amber-200">Backend API Server Connection Required</div>
+                <p className="text-slate-300 text-xs font-normal mt-0.5 leading-relaxed">
+                  NexGrid is a full-stack security application with an active Node.js API server for Argon2id/Scrypt authentication, TOTP 2FA verification, session persistence, and SMS Ethiopia dispatching.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200/90 leading-relaxed text-[11px]">
+              <strong>Why this happens on GitHub Pages:</strong> GitHub Pages is a static web host that only serves static HTML/JS files—it cannot execute the Node.js backend. You can either deploy the full Node backend to <strong>Render</strong> or <strong>Railway</strong>, or enter your backend URL below.
+            </div>
+
+            {/* Quick Action Toolbar */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={checkStatus}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold hover:bg-amber-400 transition cursor-pointer shadow-sm"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Retry Connection</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowApiConfig(!showApiConfig)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 font-medium hover:bg-slate-700 transition cursor-pointer"
+              >
+                <Server className="w-3.5 h-3.5 text-blue-400" />
+                <span>{showApiConfig ? 'Hide API URL Settings' : 'Connect Backend API URL'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowDeployGuide(!showDeployGuide)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 font-medium hover:bg-slate-700 transition cursor-pointer"
+              >
+                <HelpCircle className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{showDeployGuide ? 'Hide Deploy Guide' : 'How to Deploy Free'}</span>
+                {showDeployGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            {/* Configurable API URL form */}
+            {showApiConfig && (
+              <form onSubmit={handleSaveApiUrl} className="pt-2 border-t border-slate-800 space-y-2">
+                <label className="block text-slate-300 font-medium text-[11px]">
+                  Backend Server URL (e.g. Render, Railway, or VPS):
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Globe className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                    <input
+                      type="url"
+                      value={customApiUrl}
+                      onChange={(e) => setCustomApiUrlState(e.target.value)}
+                      placeholder="https://my-nexgrid-backend.onrender.com"
+                      className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs transition cursor-pointer shrink-0"
+                  >
+                    Save & Test
+                  </button>
+                  {customApiUrl && (
+                    <button
+                      type="button"
+                      onClick={handleResetApiUrl}
+                      className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs transition cursor-pointer shrink-0"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+                {apiSaveSuccess && (
+                  <p className="text-emerald-400 text-[11px] flex items-center gap-1">
+                    <Check className="w-3 h-3" /> Custom backend URL saved! Testing connection...
+                  </p>
+                )}
+              </form>
+            )}
+
+            {/* Deployment Guide */}
+            {showDeployGuide && (
+              <div className="pt-3 border-t border-slate-800 space-y-3 text-slate-300">
+                <div className="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
+                  <Terminal className="w-4 h-4 text-indigo-400" />
+                  <span>3 Fast Ways to Deploy NexGrid with Backend:</span>
+                </div>
+
+                <div className="space-y-2 text-[11px]">
+                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
+                    <div className="font-bold text-white mb-0.5">1. Render.com (Free & Recommended)</div>
+                    <p className="text-slate-400">
+                      Sign in to <span className="text-blue-400 font-mono">render.com</span> → Click <strong>New +</strong> → <strong>Web Service</strong> → Select your GitHub repo. Set <strong>Build Command</strong> to <code className="text-emerald-400">npm run build</code> and <strong>Start Command</strong> to <code className="text-emerald-400">npm start</code>. Both the frontend and backend run automatically!
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
+                    <div className="font-bold text-white mb-0.5">2. Railway.app or Fly.io (Instant Container)</div>
+                    <p className="text-slate-400">
+                      Connect your GitHub repo to Railway or Fly.io. The included <code className="text-indigo-400">Dockerfile</code> builds and launches both the frontend SPA and Node.js backend on standard PORT.
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
+                    <div className="font-bold text-white mb-0.5">3. Local Run on your machine or VPS</div>
+                    <p className="text-slate-400">
+                      Clone repo, run <code className="text-amber-400">npm install</code>, then <code className="text-amber-400">npm start</code> or <code className="text-amber-400">npm run dev</code>. Open <span className="text-blue-400 font-mono">http://localhost:3000</span>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* =========================================================================
             SCENARIO 1: FIRST-TIME ADMINISTRATOR SETUP WIZARD (0 ADMINS IN SYSTEM)

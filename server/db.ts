@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import {
   createSecurePasswordHash,
   verifySecurePassword,
-} from './security.js';
+} from './security.ts';
 
 export interface Admin {
   id: string;

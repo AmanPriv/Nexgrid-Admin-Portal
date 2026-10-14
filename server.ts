@@ -1,4 +1,4 @@
-import express, { Request, Response, NextFunction } from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import http from 'node:http';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -20,14 +20,14 @@ import {
   createPasswordHash,
   logAudit,
   resetAllApplicationData,
-  Admin,
-  Customer,
-  Domain,
-  Invoice,
-  Quotation,
-  Payment,
-  DatabaseSchema,
-} from './server/db.js';
+  type Admin,
+  type Customer,
+  type Domain,
+  type Invoice,
+  type Quotation,
+  type Payment,
+  type DatabaseSchema,
+} from './server/db.ts';
 import {
   validatePasswordStrength,
   generateBase32Secret,
@@ -41,7 +41,7 @@ import {
   resetRateLimit,
   getOrCreateSetupSecret,
   verifyAndConsumeSetupSecret,
-} from './server/security.js';
+} from './server/security.ts';
 import {
   queueAndSendSms,
   retryMessage,
@@ -49,17 +49,17 @@ import {
   isValidPhone,
   normalizeEthiopianPhone,
   dispatchSmsEthiopia,
-} from './server/sms.js';
+} from './server/sms.ts';
 import {
   computeSystemFinancials,
   getInvoiceFinancials,
   syncInvoiceStatuses,
-} from './server/financials.js';
+} from './server/financials.ts';
 import {
   runDomainReminderScheduler,
   initScheduler,
   getDaysRemaining,
-} from './server/scheduler.js';
+} from './server/scheduler.ts';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -72,8 +72,25 @@ app.use((req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' wss: https:;"
+    "default-src 'self' *; script-src 'self' 'unsafe-inline' *; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: *; connect-src 'self' wss: https: http: *;"
   );
+  next();
+});
+
+// Enable CORS for separate frontend/backend deployments (e.g. GitHub Pages -> Render API)
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token, X-Requested-With');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
   next();
 });
 
