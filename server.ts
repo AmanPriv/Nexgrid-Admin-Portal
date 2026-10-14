@@ -404,6 +404,59 @@ app.post('/api/auth/login', (req, res) => {
   });
 });
 
+// Quick 1-Click Administrator Sign-In
+app.post('/api/auth/quick-login', (req, res) => {
+  const db = getDb();
+  let admin = db.admins[0];
+  if (!admin) {
+    admin = {
+      id: 'ADM-SYS-001',
+      username: 'admin',
+      email: 'admin@nexgrid.et',
+      fullName: 'System Administrator',
+      role: 'super_admin',
+      passwordHash: '9d0eb2f31cd6aff2dda63d82e525f3a739b6da698d22bfbca2e34ea4c51839169060bd6812d670d9b5785436140b0cc5f4eb8898a2eddaa4f37eaed6f00db9c1',
+      salt: '596df60860c1ec55f3e4a62bbdb44ac65e39d6dba67846f1cde5455d4d3e90ef',
+      createdAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString(),
+      mfaEnabled: false,
+    };
+    db.admins.push(admin);
+    saveDb(db);
+  }
+
+  const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
+  const ua = req.headers['user-agent'] || 'Unknown';
+  const { token, csrfToken } = createSession(admin.id, clientIp, ua);
+  admin.lastLoginAt = new Date().toISOString();
+  saveDb(db);
+
+  logAudit(
+    admin.id,
+    admin.fullName,
+    'ADMIN_QUICK_LOGIN',
+    'auth',
+    admin.id,
+    `Admin ${admin.username} signed in via quick access`,
+    clientIp
+  );
+
+  return res.json({
+    token,
+    csrfToken,
+    admin: {
+      id: admin.id,
+      username: admin.username,
+      email: admin.email,
+      fullName: admin.fullName,
+      role: admin.role,
+      lastLoginAt: admin.lastLoginAt,
+      mfaEnabled: false,
+    },
+    timeoutMinutes: db.settings.general.inactivityTimeoutMinutes || 60,
+  });
+});
+
 // Verify MFA Step 2 (TOTP or Single-use Recovery Code)
 app.post('/api/auth/verify-mfa', (req, res) => {
   const { mfaToken, code, isRecoveryCode } = req.body;

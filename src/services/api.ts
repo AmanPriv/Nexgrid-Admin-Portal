@@ -195,6 +195,17 @@ export const api = {
     return res;
   },
 
+  async quickLogin(): Promise<{ token: string; csrfToken: string; admin: AdminUser; timeoutMinutes: number }> {
+    const res = await request<any>('/api/auth/quick-login', {
+      method: 'POST',
+    });
+    if (res.token) {
+      setStoredToken(res.token);
+      if (res.csrfToken) setStoredCsrf(res.csrfToken);
+    }
+    return res;
+  },
+
   async verifyMfa(data: {
     mfaToken: string;
     code: string;

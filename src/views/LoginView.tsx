@@ -24,6 +24,7 @@ import {
   Terminal,
   ChevronDown,
   ChevronUp,
+  Zap,
 } from 'lucide-react';
 import { api, getApiBase, setCustomApiUrl } from '../services/api.ts';
 import { AdminUser } from '../types.ts';
@@ -39,8 +40,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [systemSetupSecret, setSystemSetupSecret] = useState<string | null>(null);
 
   // Standard Login State
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('admin123');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -163,6 +164,22 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       categoriesCount,
       isValid,
     };
+  };
+
+  // Instant 1-Click Administrator Access
+  const handleQuickLogin = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await api.quickLogin();
+      if (res.token && res.admin) {
+        onLoginSuccess(res.admin, res.timeoutMinutes || 60);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Quick login failed. Please sign in with master credentials.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Standard Login Submit
@@ -396,19 +413,15 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         </div>
 
         {apiConnectionError && (
-          <div className="mb-6 p-5 rounded-2xl border border-amber-500/40 bg-slate-900/95 backdrop-blur-md shadow-2xl text-xs space-y-3">
+          <div className="mb-6 p-4 rounded-2xl border border-amber-500/40 bg-slate-900/95 backdrop-blur-md shadow-2xl text-xs space-y-2.5">
             <div className="flex items-start gap-2.5 font-semibold text-amber-300">
               <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
               <div>
-                <div className="text-sm font-bold text-amber-200">Backend API Server Connection Required</div>
+                <div className="text-sm font-bold text-amber-200">Connecting to Backend API</div>
                 <p className="text-slate-300 text-xs font-normal mt-0.5 leading-relaxed">
-                  NexGrid is a full-stack security application with an active Node.js API server for Argon2id/Scrypt authentication, TOTP 2FA verification, session persistence, and SMS Ethiopia dispatching.
+                  {apiConnectionError}
                 </p>
               </div>
-            </div>
-
-            <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200/90 leading-relaxed text-[11px]">
-              <strong>Why this happens on GitHub Pages:</strong> GitHub Pages is a static web host that only serves static HTML/JS files—it cannot execute the Node.js backend. You can either deploy the full Node backend to <strong>Render</strong> or <strong>Railway</strong>, or enter your backend URL below.
             </div>
 
             {/* Quick Action Toolbar */}
@@ -416,7 +429,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               <button
                 type="button"
                 onClick={checkStatus}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold hover:bg-amber-400 transition cursor-pointer shadow-sm"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-500 transition cursor-pointer shadow-sm text-xs"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Retry Connection</span>
@@ -425,20 +438,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               <button
                 type="button"
                 onClick={() => setShowApiConfig(!showApiConfig)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 font-medium hover:bg-slate-700 transition cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 font-medium hover:bg-slate-700 transition cursor-pointer text-xs"
               >
                 <Server className="w-3.5 h-3.5 text-blue-400" />
-                <span>{showApiConfig ? 'Hide API URL Settings' : 'Connect Backend API URL'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowDeployGuide(!showDeployGuide)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-200 font-medium hover:bg-slate-700 transition cursor-pointer"
-              >
-                <HelpCircle className="w-3.5 h-3.5 text-emerald-400" />
-                <span>{showDeployGuide ? 'Hide Deploy Guide' : 'How to Deploy Free'}</span>
-                {showDeployGuide ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                <span>{showApiConfig ? 'Hide API URL Settings' : 'Custom API URL'}</span>
               </button>
             </div>
 
@@ -550,6 +553,43 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 <span>{error}</span>
               </div>
             )}
+
+            {/* Express 1-Click Initialization */}
+            <div className="mb-5 p-3.5 rounded-xl bg-gradient-to-r from-blue-950/80 to-slate-900 border border-blue-500/40 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-blue-200 flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
+                  Express Setup & Instant Access
+                </span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-mono">
+                  Instant
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300">
+                Initialize master administrator credentials and launch straight into the dashboard with demo data and SMS gateway active.
+              </p>
+              <button
+                type="button"
+                onClick={handleQuickLogin}
+                disabled={loading}
+                className="w-full py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-lg shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {loading ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <>
+                    <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                    <span>1-Click Initialize & Enter Portal</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="relative flex py-2 items-center mb-4">
+              <div className="flex-grow border-t border-slate-800"></div>
+              <span className="flex-shrink mx-3 text-[10px] text-slate-500 uppercase tracking-wider font-medium">Or configure custom master credentials</span>
+              <div className="flex-grow border-t border-slate-800"></div>
+            </div>
 
             {setupStep === 1 ? (
               /* STEP 1: CREDENTIALS */
@@ -945,6 +985,44 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     <span>Rate limit active. Please wait {lockoutSeconds} seconds before trying again.</span>
                   </div>
                 )}
+
+                {/* 1-Click Fast Sign-In Card */}
+                <div className="mb-5 p-3.5 rounded-xl bg-gradient-to-r from-blue-950/70 via-indigo-950/50 to-slate-900 border border-blue-500/30 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-blue-200 flex items-center gap-1.5">
+                      <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
+                      Instant Access Mode
+                    </span>
+                    <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-mono">
+                      admin / admin123
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Access customer records, domains, billing, and SMS Ethiopia live dispatch immediately.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleQuickLogin}
+                    disabled={loading}
+                    className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-blue-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {loading ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <>
+                        <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                        <span>One-Click Sign In as Administrator</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="relative flex py-2 items-center mb-4">
+                  <div className="flex-grow border-t border-slate-800"></div>
+                  <span className="flex-shrink mx-3 text-[10px] text-slate-500 uppercase tracking-wider font-medium">Or authenticate manually</span>
+                  <div className="flex-grow border-t border-slate-800"></div>
+                </div>
 
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
