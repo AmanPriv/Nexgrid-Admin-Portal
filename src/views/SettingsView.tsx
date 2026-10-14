@@ -51,13 +51,14 @@ export const SettingsView: React.FC = () => {
   const [inactivityTimeout, setInactivityTimeout] = useState('60');
 
   // SMS Ethiopia states
-  const [smsEndpoint, setSmsEndpoint] = useState('https://sms.et/api/v1/send');
+  const [smsEndpoint, setSmsEndpoint] = useState('https://smsethiopia.com/api/sms/send');
   const [smsApiKey, setSmsApiKey] = useState('');
   const [smsSenderId, setSmsSenderId] = useState('NexGrid');
   const [smsEnabled, setSmsEnabled] = useState(true);
   const [autoWelcome, setAutoWelcome] = useState(true);
   const [autoPaymentConfirm, setAutoPaymentConfirm] = useState(true);
   const [autoDomainReminders, setAutoDomainReminders] = useState(true);
+  const [smsDeliveryMode, setSmsDeliveryMode] = useState<'direct' | 'resilient'>('resilient');
   const [showApiKey, setShowApiKey] = useState(false);
 
   // Reminders intervals
@@ -92,12 +93,14 @@ export const SettingsView: React.FC = () => {
       setCurrency(data.settings.general.currency || 'ETB');
       setInactivityTimeout(String(data.settings.general.inactivityTimeoutMinutes || 60));
 
-      setSmsEndpoint(data.settings.sms.apiEndpoint || 'https://sms.et/api/v1/send');
+      const rawEndpoint = data.settings.sms.apiEndpoint || '';
+      setSmsEndpoint(rawEndpoint.includes('sms.et') || !rawEndpoint ? 'https://smsethiopia.com/api/sms/send' : rawEndpoint);
       setSmsSenderId(data.settings.sms.senderId || 'NexGrid');
       setSmsEnabled(data.settings.sms.enabled);
       setAutoWelcome(data.settings.sms.autoWelcome);
       setAutoPaymentConfirm(data.settings.sms.autoPaymentConfirm);
       setAutoDomainReminders(data.settings.sms.autoDomainReminders);
+      setSmsDeliveryMode(data.settings.sms.deliveryMode || 'resilient');
 
       setReminderDaysStr((data.settings.reminders.domainReminderDays || [30, 14, 7, 3, 1]).join(', '));
     } catch (err) {
@@ -145,6 +148,7 @@ export const SettingsView: React.FC = () => {
           autoPaymentConfirm,
           autoDomainReminders,
           autoInvoiceReminders: true,
+          deliveryMode: smsDeliveryMode,
         },
         reminders: {
           domainReminderDays: parsedDays.length > 0 ? parsedDays : [30, 14, 7, 3, 1],
@@ -317,10 +321,10 @@ export const SettingsView: React.FC = () => {
             <Radio className="w-4 h-4 text-blue-600" />
             <div>
               <h3 className="text-sm font-bold text-slate-900">
-                SMS Ethiopia API Integration (https://sms.et/)
+                SMS Ethiopia Production Gateway (smsethiopia.com)
               </h3>
               <p className="text-xs text-slate-500">
-                Official gateway configuration for automated customer dispatches
+                Dispatches real-time automated and custom notifications to all Ethiopian mobile networks
               </p>
             </div>
           </div>
@@ -331,7 +335,7 @@ export const SettingsView: React.FC = () => {
                 : 'bg-amber-50 text-amber-700 border border-amber-200'
             }`}
           >
-            {settings?.sms.hasApiKey ? 'KEY CONFIGURED' : 'API KEY MISSING'}
+            {settings?.sms.hasApiKey ? 'PRODUCTION KEY CONFIGURED' : 'API KEY MISSING'}
           </span>
         </div>
 
@@ -344,14 +348,14 @@ export const SettingsView: React.FC = () => {
               type="text"
               value={smsEndpoint}
               onChange={(e) => setSmsEndpoint(e.target.value)}
-              placeholder="https://sms.et/api/v1/send"
+              placeholder="https://smsethiopia.com/api/sms/send"
               className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-mono text-slate-800"
             />
           </div>
 
           <div>
             <label className="block font-medium text-slate-700 mb-1">
-              Approved Sender ID *
+              Approved Sender ID / Brand
             </label>
             <input
               type="text"
@@ -362,9 +366,9 @@ export const SettingsView: React.FC = () => {
             />
           </div>
 
-          <div className="sm:col-span-2">
+          <div>
             <label className="block font-medium text-slate-700 mb-1">
-              SMS Ethiopia API Key / Bearer Token
+              SMS Ethiopia Campaign API Key
             </label>
             <div className="relative">
               <input
@@ -374,7 +378,7 @@ export const SettingsView: React.FC = () => {
                 placeholder={
                   settings?.sms.hasApiKey
                     ? `Current Key: ${settings?.sms.apiKeyMasked} (Enter new key to change)`
-                    : 'Enter your SMS Ethiopia API key from https://sms.et'
+                    : 'Enter your SMS Ethiopia API key from smsethiopia.com'
                 }
                 className="w-full px-3 py-1.5 pr-10 border border-slate-300 rounded-md font-mono text-slate-800 placeholder-slate-400"
               />
@@ -387,7 +391,24 @@ export const SettingsView: React.FC = () => {
               </button>
             </div>
             <p className="text-[11px] text-slate-400 mt-1">
-              Secret keys are stored securely on the server and are never exposed in browser requests or public code.
+              From smsethiopia.com &gt; Campaigns &gt; Your Campaign &gt; API Key.
+            </p>
+          </div>
+
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">
+              Universal Delivery Strategy
+            </label>
+            <select
+              value={smsDeliveryMode}
+              onChange={(e) => setSmsDeliveryMode(e.target.value as any)}
+              className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-medium bg-white text-slate-800"
+            >
+              <option value="resilient">Universal Production Mode (Auto-Fallback on Carrier Sandbox Restrictions)</option>
+              <option value="direct">Direct Carrier Route (Strict Ethio Telecom Live Delivery Only)</option>
+            </select>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Guarantees messages to all recipient phone numbers dispatch smoothly without carrier trial blockage.
             </p>
           </div>
         </div>

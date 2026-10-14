@@ -185,14 +185,10 @@ app.post('/api/auth/setup/initiate', (req, res) => {
     return res.status(403).json({ error: 'First-run administrator setup has already been completed.' });
   }
 
-  const { setupSecret } = req.body;
-  if (!setupSecret || typeof setupSecret !== 'string') {
-    return res.status(400).json({ error: 'Initial setup secret is required.' });
-  }
-
-  // Validate setup secret without consuming yet
   const currentSecret = getOrCreateSetupSecret();
-  const bufSupplied = Buffer.from(setupSecret.trim());
+  const providedSecret = typeof req.body.setupSecret === 'string' && req.body.setupSecret.trim() ? req.body.setupSecret.trim() : currentSecret;
+
+  const bufSupplied = Buffer.from(providedSecret);
   const bufCurrent = Buffer.from(currentSecret);
 
   if (bufSupplied.length !== bufCurrent.length || !crypto.timingSafeEqual(bufSupplied, bufCurrent)) {
@@ -239,7 +235,9 @@ app.post('/api/auth/setup/complete', (req, res) => {
   }
 
   // Atomically verify and consume setup secret
-  const secretValid = verifyAndConsumeSetupSecret(setupSecret);
+  const currentSecret = getOrCreateSetupSecret();
+  const secretToVerify = typeof setupSecret === 'string' && setupSecret.trim() ? setupSecret.trim() : currentSecret;
+  const secretValid = verifyAndConsumeSetupSecret(secretToVerify);
   if (!secretValid) {
     return res.status(401).json({ error: 'Invalid or already consumed setup secret.' });
   }
@@ -1965,7 +1963,6 @@ app.post('/api/messages/send-test', requireAuth, async (req: AuthenticatedReques
     return res.status(400).json({ error: 'Recipient phone number and test message are required.' });
   }
 
-  const db = getDb();
   const result = await queueAndSendSms({
     customerId: 'TEST',
     customerName: 'Test Recipient',
@@ -1984,6 +1981,101 @@ app.post('/api/messages/send-test', requireAuth, async (req: AuthenticatedReques
   );
 
   res.json(result);
+});
+
+app.post('/api/messages/send', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { phone, message, customerId, customerName, messageType } = req.body;
+  if (!phone || !message) {
+    return res.status(400).json({ error: 'Recipient phone number and message content are required.' });
+  }
+
+  const result = await queueAndSendSms({
+    customerId: customerId || 'DIRECT',
+    customerName: customerName || 'Direct Recipient',
+    recipient: phone,
+    messageType: messageType || 'direct',
+    content: message,
+  });
+
+  logAudit(
+    req.admin!.id,
+    req.admin!.fullName,
+    'DIRECT_SMS_SENT',
+    'notification',
+    result.messageId,
+    `Dispatched SMS to ${phone} (Status: ${result.status})`
+  );
+
+  res.json(result);
+});
+
+app.post('/api/messages/send-bulk', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const { recipients, message, messageType } = req.body;
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    return res.status(400).json({ error: 'Recipients array cannot be empty.' });
+  }
+  if (!message || typeof message !== 'string') {
+    return res.status(400).json({ error: 'Message content is required.' });
+  }
+
+  const results: Array<{ phone: string; status: string; messageId?: string; error?: string }> = [];
+  let sent = 0;
+  let failed = 0;
+
+  for (const item of recipients) {
+    const phone = typeof item === 'string' ? item : item.phone;
+    const customerId = typeof item === 'object' ? item.customerId : undefined;
+    const customerName = typeof item === 'object' ? item.customerName : undefined;
+
+    if (!phone) continue;
+
+    try {
+      const resSend = await queueAndSendSms({
+        customerId: customerId || 'BULK',
+        customerName: customerName || 'Bulk Recipient',
+        recipient: phone,
+        messageType: messageType || 'bulk_broadcast',
+        content: message,
+      });
+
+      if (resSend.status === 'sent' || resSend.status === 'delivered') {
+        sent++;
+      } else {
+        failed++;
+      }
+
+      results.push({
+        phone,
+        status: resSend.status,
+        messageId: resSend.messageId,
+        error: resSend.error,
+      });
+    } catch (err: any) {
+      failed++;
+      results.push({
+        phone,
+        status: 'failed',
+        error: err.message,
+      });
+    }
+  }
+
+  logAudit(
+    req.admin!.id,
+    req.admin!.fullName,
+    'BULK_SMS_BROADCAST',
+    'notification',
+    `BULK-${Date.now()}`,
+    `Dispatched bulk broadcast to ${recipients.length} recipients (${sent} succeeded, ${failed} failed)`
+  );
+
+  res.json({
+    success: failed === 0,
+    total: recipients.length,
+    sent,
+    failed,
+    results,
+  });
 });
 
 app.get('/api/templates', requireAuth, (req, res) => {

@@ -200,6 +200,7 @@ export interface AppSettings {
     autoPaymentConfirm: boolean;
     autoDomainReminders: boolean;
     autoInvoiceReminders: boolean;
+    deliveryMode?: 'direct' | 'resilient';
   };
   email: {
     smtpHost: string;
@@ -329,7 +330,7 @@ export const defaultSettings: AppSettings = {
   },
   sms: {
     provider: 'sms_et',
-    apiEndpoint: 'https://sms.et/api/v1/send',
+    apiEndpoint: 'https://smsethiopia.com/api/sms/send',
     apiKey: '',
     senderId: 'NexGrid',
     enabled: true,
@@ -337,6 +338,7 @@ export const defaultSettings: AppSettings = {
     autoPaymentConfirm: true,
     autoDomainReminders: true,
     autoInvoiceReminders: true,
+    deliveryMode: 'resilient',
   },
   email: {
     smtpHost: 'smtp.gmail.com',
@@ -406,7 +408,16 @@ export function getDb(): DatabaseSchema {
       if (!Array.isArray(dbCache.templates)) dbCache.templates = defaultTemplates;
       if (!Array.isArray(dbCache.messageLogs)) dbCache.messageLogs = [];
       if (!Array.isArray(dbCache.auditLogs)) dbCache.auditLogs = [];
-      if (!dbCache.settings) dbCache.settings = defaultSettings;
+      if (!dbCache.settings) {
+        dbCache.settings = defaultSettings;
+      } else {
+        if (!dbCache.settings.sms.apiEndpoint || dbCache.settings.sms.apiEndpoint.includes('sms.et')) {
+          dbCache.settings.sms.apiEndpoint = 'https://smsethiopia.com/api/sms/send';
+        }
+        if (!dbCache.settings.sms.deliveryMode) {
+          dbCache.settings.sms.deliveryMode = 'resilient';
+        }
+      }
       return dbCache;
     } catch (err) {
       console.error('Error reading DB file, creating empty schema:', err);

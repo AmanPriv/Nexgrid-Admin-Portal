@@ -464,6 +464,36 @@ export const api = {
     });
   },
 
+  async sendMessage(data: {
+    phone: string;
+    message: string;
+    customerId?: string;
+    customerName?: string;
+    messageType?: string;
+  }): Promise<{ success: boolean; status: string; messageId: string; error?: string }> {
+    return request('/api/messages/send', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async sendBulkMessage(data: {
+    recipients: Array<{ phone: string; customerId?: string; customerName?: string }>;
+    message: string;
+    messageType?: string;
+  }): Promise<{
+    success: boolean;
+    total: number;
+    sent: number;
+    failed: number;
+    results: Array<{ phone: string; status: string; messageId?: string; error?: string }>;
+  }> {
+    return request('/api/messages/send-bulk', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
   async getTemplates(): Promise<{ templates: MessageTemplate[] }> {
     return request('/api/templates');
   },

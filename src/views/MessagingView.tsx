@@ -13,26 +13,49 @@ import {
   RefreshCw,
   Search,
   Filter,
+  Users,
+  Layers,
+  Check,
+  ChevronRight,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
-import { MessageLog, MessageTemplate, AppSettings } from '../types.ts';
+import { MessageLog, MessageTemplate, AppSettings, Customer } from '../types.ts';
 
 export const MessagingView: React.FC = () => {
   const [logs, setLogs] = useState<MessageLog[]>([]);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeSubTab, setActiveSubTab] = useState<'logs' | 'templates' | 'test'>('logs');
+  const [activeSubTab, setActiveSubTab] = useState<'compose' | 'bulk' | 'logs' | 'templates'>('compose');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'delivered' | 'sent' | 'failed' | 'queued'>('all');
 
-  // Test SMS State
-  const [testPhone, setTestPhone] = useState('+251911223344');
-  const [testMessage, setTestMessage] = useState(
-    'NexGrid Digital Systems: Test dispatch from Admin Portal via SMS Ethiopia API.'
-  );
-  const [testLoading, setTestLoading] = useState(false);
-  const [testResult, setTestResult] = useState<{ status: string; error?: string } | null>(null);
+  // Compose SMS State (Send to Anyone)
+  const [recipientType, setRecipientType] = useState<'customer' | 'custom'>('custom');
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [customPhone, setCustomPhone] = useState('+251911223344');
+  const [composeMessage, setComposeMessage] = useState('NexGrid Digital Systems: Greetings! Your system account is active.');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [composeLoading, setComposeLoading] = useState(false);
+  const [composeResult, setComposeResult] = useState<{
+    status: string;
+    messageId?: string;
+    providerRef?: string;
+    error?: string;
+  } | null>(null);
+
+  // Bulk Broadcast State
+  const [bulkAudience, setBulkAudience] = useState<'all' | 'manual'>('all');
+  const [bulkManualNumbers, setBulkManualNumbers] = useState('');
+  const [bulkMessage, setBulkMessage] = useState('NexGrid Digital Systems: Important service update for all registered subscribers.');
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{
+    total: number;
+    sent: number;
+    failed: number;
+    results: Array<{ phone: string; status: string; error?: string }>;
+  } | null>(null);
 
   // Template Editing State
   const [editingTemplate, setEditingTemplate] = useState<MessageTemplate | null>(null);
@@ -45,14 +68,16 @@ export const MessagingView: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [logsData, tmplData, settsData] = await Promise.all([
+      const [logsData, tmplData, settsData, custData] = await Promise.all([
         api.getMessageLogs(),
         api.getTemplates(),
         api.getSettings(),
+        api.getCustomers().catch(() => ({ customers: [] })),
       ]);
-      setLogs(logsData.logs);
-      setTemplates(tmplData.templates);
-      setSettings(settsData.settings);
+      setLogs(logsData.logs || []);
+      setTemplates(tmplData.templates || []);
+      setSettings(settsData.settings || null);
+      setCustomers(custData.customers || []);
     } catch (err) {
       console.error('Failed to load messaging data:', err);
     } finally {
@@ -64,19 +89,114 @@ export const MessagingView: React.FC = () => {
     loadData();
   }, []);
 
-  const handleSendTestSms = async (e: React.FormEvent) => {
+  // When customer dropdown changes in Compose tab
+  const handleCustomerSelect = (customerId: string) => {
+    setSelectedCustomerId(customerId);
+    const cust = customers.find((c) => c.id === customerId);
+    if (cust && cust.phone) {
+      setCustomPhone(cust.phone);
+    }
+  };
+
+  // When template dropdown changes in Compose tab
+  const handleTemplateSelect = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    const tmpl = templates.find((t) => t.id === templateId);
+    if (tmpl) {
+      let body = tmpl.bodyTemplate;
+      const cust = customers.find((c) => c.id === selectedCustomerId);
+      if (cust) {
+        body = body
+          .replace(/\[Customer Name\]/g, cust.businessName || cust.contactPerson)
+          .replace(/\[Amount\]/g, '2,500.00')
+          .replace(/\[Currency\]/g, 'ETB')
+          .replace(/\[Business Contact\]/g, settings?.general?.businessPhone || '+251 911 234 567');
+      }
+      setComposeMessage(body);
+    }
+  };
+
+  // Send Direct SMS to Anyone
+  const handleSendDirectSms = async (e: React.FormEvent) => {
     e.preventDefault();
-    setTestLoading(true);
-    setTestResult(null);
+    setComposeLoading(true);
+    setComposeResult(null);
+
+    const cust = customers.find((c) => c.id === selectedCustomerId);
 
     try {
-      const res = await api.sendTestSms(testPhone, testMessage);
-      setTestResult({ status: res.status, error: res.error });
+      const res = await api.sendMessage({
+        phone: customPhone,
+        message: composeMessage,
+        customerId: recipientType === 'customer' && cust ? cust.id : undefined,
+        customerName: recipientType === 'customer' && cust ? cust.businessName : undefined,
+        messageType: 'direct_dispatch',
+      });
+
+      setComposeResult({
+        status: res.status,
+        messageId: res.messageId,
+        error: res.error,
+      });
       loadData();
     } catch (err: any) {
-      setTestResult({ status: 'failed', error: err.message });
+      setComposeResult({
+        status: 'failed',
+        error: err.message || 'Failed to dispatch SMS through gateway',
+      });
     } finally {
-      setTestLoading(false);
+      setComposeLoading(false);
+    }
+  };
+
+  // Send Bulk SMS Broadcast
+  const handleSendBulkSms = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBulkLoading(true);
+    setBulkResult(null);
+
+    let recipientsList: Array<{ phone: string; customerId?: string; customerName?: string }> = [];
+
+    if (bulkAudience === 'all') {
+      recipientsList = customers
+        .filter((c) => c.phone && c.phone.trim().length > 5)
+        .map((c) => ({
+          phone: c.phone,
+          customerId: c.id,
+          customerName: c.businessName,
+        }));
+    } else {
+      const numbers = bulkManualNumbers
+        .split(/[\n,;]/)
+        .map((n) => n.trim())
+        .filter((n) => n.length > 5);
+      recipientsList = numbers.map((n) => ({ phone: n }));
+    }
+
+    if (recipientsList.length === 0) {
+      alert('No valid recipient phone numbers found for broadcast.');
+      setBulkLoading(false);
+      return;
+    }
+
+    try {
+      const res = await api.sendBulkMessage({
+        recipients: recipientsList,
+        message: bulkMessage,
+        messageType: 'bulk_broadcast',
+      });
+
+      setBulkResult({
+        total: res.total,
+        sent: res.sent,
+        failed: res.failed,
+        results: res.results,
+      });
+      loadData();
+    } catch (err: any) {
+      alert(`Bulk broadcast error: ${err.message}`);
+    } finally {
+      setBulkLoading(false);
     }
   };
 
@@ -84,7 +204,6 @@ export const MessagingView: React.FC = () => {
     setRetryingId(id);
     try {
       const res = await api.retryMessage(id);
-      alert(`Retry dispatched. Result: ${res.status}${res.error ? ` (${res.error})` : ''}`);
       loadData();
     } catch (err: any) {
       alert(`Retry error: ${err.message}`);
@@ -129,9 +248,12 @@ export const MessagingView: React.FC = () => {
     return matchesSearch && matchesStatus;
   });
 
+  const deliveredCount = logs.filter((l) => l.status === 'delivered').length;
+  const deliveryRate = logs.length > 0 ? Math.round((deliveredCount / logs.length) * 100) : 100;
+
   return (
     <div className="space-y-4">
-      {/* 1. SMS Ethiopia Gateway Integration Health Header */}
+      {/* 1. Production SMS Gateway Integration Health Header */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
@@ -141,7 +263,7 @@ export const MessagingView: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-slate-900">
-                  SMS Ethiopia Gateway (sms.et)
+                  SMS Ethiopia Production Gateway (smsethiopia.com)
                 </h3>
                 <span
                   className={`text-[10px] font-bold px-2 py-0.5 rounded ${
@@ -150,16 +272,20 @@ export const MessagingView: React.FC = () => {
                       : 'bg-amber-50 text-amber-700 border border-amber-200'
                   }`}
                 >
-                  {settings?.sms.hasApiKey ? 'CREDENTIALS CONFIGURED' : 'API KEY REQUIRED'}
+                  {settings?.sms.hasApiKey ? 'PRODUCTION DISPATCH ACTIVE' : 'API KEY REQUIRED'}
                 </span>
               </div>
               <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span>Endpoint: <strong className="font-mono text-slate-700">{settings?.sms.apiEndpoint || 'https://sms.et/api/v1/send'}</strong></span>
+                <span>Endpoint: <strong className="font-mono text-slate-700">{settings?.sms.apiEndpoint || 'https://smsethiopia.com/api/sms/send'}</strong></span>
                 <span>·</span>
                 <span>Sender ID: <strong className="text-slate-700">{settings?.sms.senderId || 'NexGrid'}</strong></span>
                 <span>·</span>
                 <span>
-                  API Key: <strong className="font-mono text-slate-700">{settings?.sms.apiKeyMasked || 'Not configured in Settings'}</strong>
+                  Delivery Strategy: <strong className="text-slate-700 font-medium">Universal Production Mode</strong>
+                </span>
+                <span>·</span>
+                <span>
+                  Delivery Rate: <strong className="text-emerald-600">{deliveryRate}%</strong> ({deliveredCount}/{logs.length} delivered)
                 </span>
               </div>
             </div>
@@ -167,19 +293,26 @@ export const MessagingView: React.FC = () => {
 
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => setActiveSubTab('test')}
+              onClick={() => setActiveSubTab('compose')}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-2xs transition-colors"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>Test SMS Dispatch</span>
+              <span>Compose & Send SMS</span>
+            </button>
+            <button
+              onClick={() => setActiveSubTab('bulk')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-colors"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Bulk Broadcast</span>
             </button>
             <a
-              href="https://sms.et"
+              href="https://smsethiopia.com"
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 text-xs font-medium"
             >
-              <span>sms.et</span>
+              <span>smsethiopia.com</span>
               <ExternalLink className="w-3 h-3" />
             </a>
           </div>
@@ -189,6 +322,26 @@ export const MessagingView: React.FC = () => {
       {/* Sub-tab Navigation */}
       <div className="flex items-center justify-between border-b border-slate-200 pb-2">
         <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs">
+          <button
+            onClick={() => setActiveSubTab('compose')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+              activeSubTab === 'compose'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Compose & Dispatch SMS
+          </button>
+          <button
+            onClick={() => setActiveSubTab('bulk')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+              activeSubTab === 'bulk'
+                ? 'bg-slate-900 text-white shadow-2xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Bulk Broadcast
+          </button>
           <button
             onClick={() => setActiveSubTab('logs')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
@@ -214,16 +367,6 @@ export const MessagingView: React.FC = () => {
           >
             Message Templates ({templates.length})
           </button>
-          <button
-            onClick={() => setActiveSubTab('test')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-              activeSubTab === 'test'
-                ? 'bg-slate-900 text-white shadow-2xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Live Gateway Tester
-          </button>
         </div>
 
         <button
@@ -235,7 +378,291 @@ export const MessagingView: React.FC = () => {
         </button>
       </div>
 
-      {/* 2. Dispatch Logs Tab */}
+      {/* 2. Compose & Dispatch SMS (Send to Anyone) */}
+      {activeSubTab === 'compose' && (
+        <div className="max-w-2xl mx-auto bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-4 text-xs">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Compose & Dispatch Live SMS</h3>
+            <p className="text-slate-500 text-[11px] mt-0.5">
+              Send SMS notifications to any phone number or registered client across Ethio Telecom and Safaricom networks.
+            </p>
+          </div>
+
+          {composeResult && (
+            <div
+              className={`p-3 rounded-lg text-xs flex items-start gap-2.5 ${
+                composeResult.status === 'sent' || composeResult.status === 'delivered'
+                  ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                  : 'bg-rose-50 border border-rose-200 text-rose-900'
+              }`}
+            >
+              {composeResult.status === 'sent' || composeResult.status === 'delivered' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              )}
+              <div className="space-y-0.5">
+                <div className="font-bold capitalize">
+                  {composeResult.status === 'delivered' || composeResult.status === 'sent'
+                    ? 'Dispatched Successfully'
+                    : 'Dispatch Failed'}
+                </div>
+                {composeResult.messageId && (
+                  <div className="font-mono text-[11px] text-emerald-700">
+                    Message ID: {composeResult.messageId}
+                  </div>
+                )}
+                {composeResult.error && (
+                  <div className="leading-relaxed text-rose-700 text-[11px]">
+                    {composeResult.error}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSendDirectSms} className="space-y-4">
+            {/* Recipient Target Selector */}
+            <div className="space-y-2">
+              <label className="block font-medium text-slate-700">Recipient Target *</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setRecipientType('custom')}
+                  className={`py-2 px-3 rounded-lg border text-left flex items-center justify-between ${
+                    recipientType === 'custom'
+                      ? 'border-blue-600 bg-blue-50/50 text-blue-900 font-semibold'
+                      : 'border-slate-200 bg-white text-slate-700'
+                  }`}
+                >
+                  <span>Direct Phone Number (Anyone)</span>
+                  {recipientType === 'custom' && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecipientType('customer')}
+                  className={`py-2 px-3 rounded-lg border text-left flex items-center justify-between ${
+                    recipientType === 'customer'
+                      ? 'border-blue-600 bg-blue-50/50 text-blue-900 font-semibold'
+                      : 'border-slate-200 bg-white text-slate-700'
+                  }`}
+                >
+                  <span>Select Registered Customer</span>
+                  {recipientType === 'customer' && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                </button>
+              </div>
+            </div>
+
+            {recipientType === 'customer' && (
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">
+                  Choose Customer from Database *
+                </label>
+                <select
+                  value={selectedCustomerId}
+                  onChange={(e) => handleCustomerSelect(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">-- Choose a customer --</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.businessName} ({c.phone || 'No phone recorded'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">
+                Recipient Mobile Number (Ethiopian Standard) *
+              </label>
+              <input
+                type="text"
+                required
+                value={customPhone}
+                onChange={(e) => setCustomPhone(e.target.value)}
+                placeholder="+251911223344 or 0911223344"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">
+                Accepts Ethiopian local format (09..., 07...) or international format (+251...).
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-medium text-slate-700">Message Content *</label>
+                {templates.length > 0 && (
+                  <select
+                    value={selectedTemplateId}
+                    onChange={(e) => handleTemplateSelect(e.target.value)}
+                    className="text-[11px] border border-slate-200 rounded px-2 py-0.5 text-slate-600 bg-slate-50"
+                  >
+                    <option value="">Insert Template Preset...</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <textarea
+                rows={4}
+                required
+                value={composeMessage}
+                onChange={(e) => setComposeMessage(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                placeholder="Enter SMS message body..."
+              />
+              <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
+                <span>
+                  Length: <strong>{composeMessage.length}</strong> characters
+                </span>
+                <span>
+                  Segments: <strong>{Math.ceil(composeMessage.length / 160) || 1}</strong> SMS standard segment
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-[11px] flex items-center justify-between">
+              <div>
+                Sender ID: <strong className="text-slate-800">{settings?.sms.senderId || 'NexGrid'}</strong>
+              </div>
+              <div>
+                Endpoint: <strong className="font-mono text-slate-800">{settings?.sms.apiEndpoint || 'smsethiopia.com'}</strong>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={composeLoading || !customPhone.trim() || !composeMessage.trim()}
+              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-2xs flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
+            >
+              <Send className="w-4 h-4" />
+              <span>{composeLoading ? 'Dispatching via Gateway...' : 'Dispatch SMS to Recipient'}</span>
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* 3. Bulk Broadcast SMS Tab */}
+      {activeSubTab === 'bulk' && (
+        <div className="max-w-2xl mx-auto bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-4 text-xs">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Bulk SMS Broadcast</h3>
+            <p className="text-slate-500 text-[11px] mt-0.5">
+              Broadcast critical service announcements, reminders, or maintenance notices to multiple recipients simultaneously.
+            </p>
+          </div>
+
+          {bulkResult && (
+            <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800">Broadcast Summary</span>
+                <span className="text-[11px] text-slate-500">Total: {bulkResult.total} recipients</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                <div className="p-2 rounded bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold">
+                  {bulkResult.sent} Succeeded
+                </div>
+                <div className="p-2 rounded bg-rose-50 border border-rose-200 text-rose-800 font-bold">
+                  {bulkResult.failed} Failed
+                </div>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSendBulkSms} className="space-y-4">
+            <div>
+              <label className="block font-medium text-slate-700 mb-1.5">Target Audience *</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setBulkAudience('all')}
+                  className={`py-2.5 px-3 rounded-lg border text-left ${
+                    bulkAudience === 'all'
+                      ? 'border-blue-600 bg-blue-50/50 text-blue-900 font-semibold'
+                      : 'border-slate-200 bg-white text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span>All Registered Customers</span>
+                    {bulkAudience === 'all' && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                    {customers.filter((c) => c.phone).length} customer mobile numbers
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setBulkAudience('manual')}
+                  className={`py-2.5 px-3 rounded-lg border text-left ${
+                    bulkAudience === 'manual'
+                      ? 'border-blue-600 bg-blue-50/50 text-blue-900 font-semibold'
+                      : 'border-slate-200 bg-white text-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span>Custom Numbers List</span>
+                    {bulkAudience === 'manual' && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-normal mt-0.5">
+                    Comma, semicolon, or newline separated
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {bulkAudience === 'manual' && (
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">
+                  Recipient Numbers (Comma or newline separated) *
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={bulkManualNumbers}
+                  onChange={(e) => setBulkManualNumbers(e.target.value)}
+                  placeholder="0911223344, 0922334455, +251933445566"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">
+                Broadcast Message Content *
+              </label>
+              <textarea
+                rows={4}
+                required
+                value={bulkMessage}
+                onChange={(e) => setBulkMessage(e.target.value)}
+                placeholder="Compose your broadcast message..."
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+              <div className="flex justify-between text-[11px] text-slate-400 mt-1">
+                <span>Length: {bulkMessage.length} characters</span>
+                <span>Segments: {Math.ceil(bulkMessage.length / 160) || 1}</span>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={bulkLoading || !bulkMessage.trim()}
+              className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-lg shadow-2xs flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
+            >
+              <Users className="w-4 h-4" />
+              <span>{bulkLoading ? 'Broadcasting Batch Dispatches...' : 'Launch Bulk Broadcast'}</span>
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* 4. Dispatch Logs Tab */}
       {activeSubTab === 'logs' && (
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -362,7 +789,7 @@ export const MessagingView: React.FC = () => {
         </div>
       )}
 
-      {/* 3. Message Templates Tab */}
+      {/* 5. Message Templates Tab */}
       {activeSubTab === 'templates' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Template List */}
@@ -445,7 +872,7 @@ export const MessagingView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Simulated SMS Preview Bubble */}
+                {/* Customer Device SMS Preview */}
                 <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                   <div className="flex items-center gap-2 text-[11px] font-semibold text-slate-500">
                     <Smartphone className="w-3.5 h-3.5 text-slate-600" />
@@ -473,85 +900,6 @@ export const MessagingView: React.FC = () => {
               </div>
             )}
           </div>
-        </div>
-      )}
-
-      {/* 4. Live Gateway Tester Tab */}
-      {activeSubTab === 'test' && (
-        <div className="max-w-xl mx-auto bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-4 text-xs">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">Live SMS Ethiopia Gateway Tester</h3>
-            <p className="text-slate-500 text-[11px] mt-0.5">
-              Send a real-time verification SMS to any phone number to test connectivity, sender ID registration, and account balance on sms.et.
-            </p>
-          </div>
-
-          {testResult && (
-            <div
-              className={`p-3 rounded-lg text-xs flex items-start gap-2 ${
-                testResult.status === 'sent' || testResult.status === 'delivered'
-                  ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-                  : 'bg-rose-50 border border-rose-200 text-rose-800'
-              }`}
-            >
-              {testResult.status === 'sent' || testResult.status === 'delivered' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              ) : (
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              )}
-              <div>
-                <div className="font-semibold capitalize">Result: {testResult.status}</div>
-                {testResult.error && <div className="mt-0.5">{testResult.error}</div>}
-              </div>
-            </div>
-          )}
-
-          <form onSubmit={handleSendTestSms} className="space-y-3">
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">
-                Recipient Phone Number (Ethiopian Standard) *
-              </label>
-              <input
-                type="text"
-                required
-                value={testPhone}
-                onChange={(e) => setTestPhone(e.target.value)}
-                placeholder="+251911223344 or 0911223344"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block font-medium text-slate-700 mb-1">
-                Test Message Text *
-              </label>
-              <textarea
-                rows={3}
-                required
-                value={testMessage}
-                onChange={(e) => setTestMessage(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              />
-              <div className="text-[11px] text-slate-400 mt-1">
-                Characters: {testMessage.length} / 160
-              </div>
-            </div>
-
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-[11px] space-y-1">
-              <div>• Gateway Endpoint: <strong>{settings?.sms.apiEndpoint || 'https://sms.et/api/v1/send'}</strong></div>
-              <div>• Sender ID: <strong>{settings?.sms.senderId || 'NexGrid'}</strong></div>
-              <div>• API Key status: {settings?.sms.hasApiKey ? 'Configured' : 'Missing (Will report exact error)'}</div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={testLoading}
-              className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg shadow-2xs flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              <Send className="w-4 h-4" />
-              <span>{testLoading ? 'Calling SMS Ethiopia Gateway...' : 'Send Live Test SMS'}</span>
-            </button>
-          </form>
         </div>
       )}
     </div>

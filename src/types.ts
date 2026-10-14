@@ -227,6 +227,7 @@ export interface AppSettings {
     autoPaymentConfirm: boolean;
     autoDomainReminders: boolean;
     autoInvoiceReminders: boolean;
+    deliveryMode?: 'direct' | 'resilient';
   };
   email: {
     smtpHost: string;
