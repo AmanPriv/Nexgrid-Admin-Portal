@@ -10,8 +10,11 @@ export interface SendSmsResult {
 
 export function formatMsisdn(phone: string): string {
   const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('251') && (digits.length === 12 || digits.length === 13)) {
-    return digits;
+  if (digits.startsWith('2510') && digits.length === 13) {
+    return `251${digits.slice(4)}`;
+  }
+  if (digits.startsWith('251') && digits.length >= 12) {
+    return digits.slice(0, 12);
   }
   if ((digits.startsWith('09') || digits.startsWith('07')) && digits.length === 10) {
     return `251${digits.slice(1)}`;
@@ -67,9 +70,9 @@ export function renderTemplate(template: string, vars: Record<string, string | n
 }
 
 /**
- * Real dispatch to SMS Ethiopia official API endpoint (smsethiopia.com)
+ * Real dispatch to SMS Gateway (supports SMS Ethiopia, AfroMessage, and Custom HTTP Gateway)
  */
-export async function dispatchSmsEthiopia(
+export async function dispatchSms(
   recipient: string,
   message: string
 ): Promise<{ status: 'sent' | 'delivered' | 'failed'; providerRef?: string; error?: string }> {
@@ -86,24 +89,111 @@ export async function dispatchSmsEthiopia(
   if (!smsConfig.apiKey || smsConfig.apiKey.trim() === '') {
     return {
       status: 'failed',
-      error: 'SMS Ethiopia API key is not configured in Settings. Please provide your API Key from smsethiopia.com.',
+      error: 'SMS Gateway API key is not configured in Settings. Please provide your API Key from smsethiopia.com or your SMS provider.',
     };
   }
 
-  // Auto-upgrade legacy sms.et URLs to the official live endpoint
+  const cleanKey = smsConfig.apiKey.trim();
+  const msisdn = formatMsisdn(recipient);
+  const provider = (smsConfig.provider as string) || 'sms_et';
+
+  // 1. AfroMessage Provider
+  if (provider === 'afro_message') {
+    const endpoint = smsConfig.apiEndpoint?.trim() || 'https://api.afromessage.com/api/send';
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cleanKey}`,
+        },
+        body: JSON.stringify({
+          to: msisdn,
+          message,
+          ...(smsConfig.senderId ? { from: smsConfig.senderId } : {}),
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const data = (await res.json().catch(() => ({}))) as any;
+      if (res.ok && (data.acknowledge === 'success' || data.status === 'success' || !data.error)) {
+        return {
+          status: 'sent',
+          providerRef: String(data.response?.id || data.id || `AFRO-${Date.now()}`),
+        };
+      }
+      return {
+        status: 'failed',
+        error: data.message || data.error || `AfroMessage Gateway Error (${res.status})`,
+      };
+    } catch (err: any) {
+      return {
+        status: 'failed',
+        error: `AfroMessage Connection Error: ${err.message}`,
+      };
+    }
+  }
+
+  // 2. Custom HTTP / Webhook Gateway
+  if (provider === 'custom_webhook') {
+    const endpoint = smsConfig.apiEndpoint?.trim();
+    if (!endpoint) {
+      return { status: 'failed', error: 'Custom SMS Gateway URL is not configured.' };
+    }
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cleanKey}`,
+          'X-API-KEY': cleanKey,
+        },
+        body: JSON.stringify({
+          to: msisdn,
+          recipient: msisdn,
+          message,
+          text: message,
+          sender: smsConfig.senderId || 'NexGrid',
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const raw = await res.text();
+      if (res.ok) {
+        return {
+          status: 'sent',
+          providerRef: `HOOK-${Date.now()}`,
+        };
+      }
+      return {
+        status: 'failed',
+        error: `Custom Gateway Error (${res.status}): ${raw.slice(0, 180)}`,
+      };
+    } catch (err: any) {
+      return {
+        status: 'failed',
+        error: `Custom Gateway Connection Error: ${err.message}`,
+      };
+    }
+  }
+
+  // 3. Official SMS Ethiopia Gateway (smsethiopia.com) - Default
   let endpoint = smsConfig.apiEndpoint?.trim() || 'https://smsethiopia.com/api/sms/send';
   if (endpoint.includes('sms.et')) {
     endpoint = 'https://smsethiopia.com/api/sms/send';
   }
 
-  const msisdn = formatMsisdn(recipient);
-  const cleanKey = smsConfig.apiKey.trim();
-
-  // Official SMS Ethiopia JSON payload (per smsethiopia.com docs)
   const payload: Record<string, any> = {
     msisdn,
     text: message,
   };
+  if (smsConfig.senderId && smsConfig.senderId.trim() !== '') {
+    payload.sender_id = smsConfig.senderId.trim();
+  }
 
   try {
     const controller = new AbortController();
@@ -155,24 +245,13 @@ export async function dispatchSmsEthiopia(
         rawMsg.includes('10007') ||
         rawMsg.includes('DEFAULT_CAMPAIGN_RECIPIENT_NOT_WHITELISTED');
 
-      // Resilient Delivery Mode: Automatically bypass carrier trial campaign whitelist restriction
-      // so business operations (new client onboarding, invoices, domain expiry reminders) succeed for anyone.
-      const isResilientMode = smsConfig.deliveryMode !== 'direct';
-
-      if (isWhitelistError && isResilientMode) {
-        return {
-          status: 'delivered',
-          providerRef: `SMSET-UNIVERSAL-${Date.now().toString(36).toUpperCase()}`,
-        };
-      }
-
       let errorMsg = `HTTP ${response.status} (${response.statusText})`;
       if (isWhitelistError) {
-        errorMsg = `Carrier Trial Restriction (Error 10007): Active SMS Ethiopia key belongs to a starter campaign. Enter your paid campaign API key in Settings > SMS to route directly via Ethio Telecom, or enable Resilient Mode.`;
+        errorMsg = `Carrier Restriction (Error 10007): SMS Ethiopia rejected delivery because this API key is from a Starter/Free trial campaign, which can only deliver to phone numbers verified in your dashboard. To send SMS to anyone across Ethiopia (09... Ethio Telecom and 07... Safaricom), create/activate a Campaign in smsethiopia.com and paste your Campaign API Key into Settings > SMS Gateway.`;
       } else if (response.status === 401 || response.status === 403) {
         errorMsg = `Authentication Failed: Invalid SMS Ethiopia API Key (${response.status}). Verify your key at https://smsethiopia.com`;
       } else if (response.status === 402) {
-        errorMsg = 'Insufficient Account Balance / Credit on SMS Ethiopia.';
+        errorMsg = 'Insufficient Account Balance / Credit on SMS Ethiopia. Please top up your account at smsethiopia.com.';
       } else if (rawMsg) {
         errorMsg = `SMS Gateway Error: ${rawMsg}`;
       } else if (typeof responseData?.raw === 'string' && responseData.raw) {
@@ -195,6 +274,9 @@ export async function dispatchSmsEthiopia(
     };
   }
 }
+
+// Alias for backwards compatibility
+export const dispatchSmsEthiopia = dispatchSms;
 
 /**
  * Creates a message log and triggers dispatch

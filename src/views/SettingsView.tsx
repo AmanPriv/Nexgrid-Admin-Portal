@@ -19,6 +19,8 @@ import {
   Trash2,
   AlertOctagon,
   ShieldAlert,
+  Zap,
+  ExternalLink,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
 import { AppSettings, ActiveSession } from '../types.ts';
@@ -50,7 +52,8 @@ export const SettingsView: React.FC = () => {
   const [currency, setCurrency] = useState('ETB');
   const [inactivityTimeout, setInactivityTimeout] = useState('60');
 
-  // SMS Ethiopia states
+  // SMS Gateway states
+  const [smsProvider, setSmsProvider] = useState<'sms_et' | 'afro_message' | 'custom_webhook'>('sms_et');
   const [smsEndpoint, setSmsEndpoint] = useState('https://smsethiopia.com/api/sms/send');
   const [smsApiKey, setSmsApiKey] = useState('');
   const [smsSenderId, setSmsSenderId] = useState('NexGrid');
@@ -58,8 +61,12 @@ export const SettingsView: React.FC = () => {
   const [autoWelcome, setAutoWelcome] = useState(true);
   const [autoPaymentConfirm, setAutoPaymentConfirm] = useState(true);
   const [autoDomainReminders, setAutoDomainReminders] = useState(true);
-  const [smsDeliveryMode, setSmsDeliveryMode] = useState<'direct' | 'resilient'>('resilient');
   const [showApiKey, setShowApiKey] = useState(false);
+
+  // Gateway Diagnostics state
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagResult, setDiagResult] = useState<any>(null);
+  const [diagPhone, setDiagPhone] = useState('251911223344');
 
   // Reminders intervals
   const [reminderDaysStr, setReminderDaysStr] = useState('30, 14, 7, 3, 1');
@@ -96,11 +103,11 @@ export const SettingsView: React.FC = () => {
       const rawEndpoint = data.settings.sms.apiEndpoint || '';
       setSmsEndpoint(rawEndpoint.includes('sms.et') || !rawEndpoint ? 'https://smsethiopia.com/api/sms/send' : rawEndpoint);
       setSmsSenderId(data.settings.sms.senderId || 'NexGrid');
+      setSmsProvider((data.settings.sms.provider as any) || 'sms_et');
       setSmsEnabled(data.settings.sms.enabled);
       setAutoWelcome(data.settings.sms.autoWelcome);
       setAutoPaymentConfirm(data.settings.sms.autoPaymentConfirm);
       setAutoDomainReminders(data.settings.sms.autoDomainReminders);
-      setSmsDeliveryMode(data.settings.sms.deliveryMode || 'resilient');
 
       setReminderDaysStr((data.settings.reminders.domainReminderDays || [30, 14, 7, 3, 1]).join(', '));
     } catch (err) {
@@ -114,6 +121,23 @@ export const SettingsView: React.FC = () => {
     loadSettings();
     loadSessions();
   }, []);
+
+  const handleTestGateway = async () => {
+    setDiagLoading(true);
+    setDiagResult(null);
+    try {
+      const res = await api.diagnoseGateway(diagPhone);
+      setDiagResult(res);
+    } catch (err: any) {
+      setDiagResult({
+        success: false,
+        diagnosticStatus: 'network_error',
+        recommendation: err.message || 'Gateway diagnostic connection failed.',
+      });
+    } finally {
+      setDiagLoading(false);
+    }
+  };
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,7 +163,7 @@ export const SettingsView: React.FC = () => {
           inactivityTimeoutMinutes: Number(inactivityTimeout) || 60,
         },
         sms: {
-          provider: 'sms_et',
+          provider: smsProvider,
           apiEndpoint: smsEndpoint,
           apiKey: smsApiKey, // will preserve existing if empty string
           senderId: smsSenderId,
@@ -148,7 +172,6 @@ export const SettingsView: React.FC = () => {
           autoPaymentConfirm,
           autoDomainReminders,
           autoInvoiceReminders: true,
-          deliveryMode: smsDeliveryMode,
         },
         reminders: {
           domainReminderDays: parsedDays.length > 0 ? parsedDays : [30, 14, 7, 3, 1],
@@ -314,17 +337,17 @@ export const SettingsView: React.FC = () => {
         </div>
       )}
 
-      {/* 1. SMS Ethiopia Official API Settings */}
+      {/* 1. SMS Gateway & Multi-Provider Settings */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-200">
           <div className="flex items-center gap-2.5">
             <Radio className="w-4 h-4 text-blue-600" />
             <div>
               <h3 className="text-sm font-bold text-slate-900">
-                SMS Ethiopia Production Gateway (smsethiopia.com)
+                SMS Gateway Configuration & Live Routing
               </h3>
               <p className="text-xs text-slate-500">
-                Dispatches real-time automated and custom notifications to all Ethiopian mobile networks
+                Send real-time transactional & reminder SMS to Ethio Telecom (09...) and Safaricom (07...) recipients
               </p>
             </div>
           </div>
@@ -335,11 +358,34 @@ export const SettingsView: React.FC = () => {
                 : 'bg-amber-50 text-amber-700 border border-amber-200'
             }`}
           >
-            {settings?.sms.hasApiKey ? 'PRODUCTION KEY CONFIGURED' : 'API KEY MISSING'}
+            {settings?.sms.hasApiKey ? 'API KEY CONFIGURED' : 'API KEY MISSING'}
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          <div>
+            <label className="block font-medium text-slate-700 mb-1">
+              Active SMS Provider *
+            </label>
+            <select
+              value={smsProvider}
+              onChange={(e) => {
+                const prov = e.target.value as any;
+                setSmsProvider(prov);
+                if (prov === 'sms_et') {
+                  setSmsEndpoint('https://smsethiopia.com/api/sms/send');
+                } else if (prov === 'afro_message') {
+                  setSmsEndpoint('https://api.afromessage.com/api/send');
+                }
+              }}
+              className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-medium bg-white text-slate-800"
+            >
+              <option value="sms_et">SMS Ethiopia Official API (smsethiopia.com)</option>
+              <option value="afro_message">AfroMessage Telecom API (api.afromessage.com)</option>
+              <option value="custom_webhook">Custom HTTP REST / Webhook Gateway</option>
+            </select>
+          </div>
+
           <div>
             <label className="block font-medium text-slate-700 mb-1">
               Gateway Endpoint URL *
@@ -368,7 +414,11 @@ export const SettingsView: React.FC = () => {
 
           <div>
             <label className="block font-medium text-slate-700 mb-1">
-              SMS Ethiopia Campaign API Key
+              {smsProvider === 'sms_et'
+                ? 'SMS Ethiopia Campaign API Key *'
+                : smsProvider === 'afro_message'
+                ? 'AfroMessage Auth Token *'
+                : 'Gateway API Key / Token'}
             </label>
             <div className="relative">
               <input
@@ -378,7 +428,7 @@ export const SettingsView: React.FC = () => {
                 placeholder={
                   settings?.sms.hasApiKey
                     ? `Current Key: ${settings?.sms.apiKeyMasked} (Enter new key to change)`
-                    : 'Enter your SMS Ethiopia API key from smsethiopia.com'
+                    : 'Enter your SMS API key'
                 }
                 className="w-full px-3 py-1.5 pr-10 border border-slate-300 rounded-md font-mono text-slate-800 placeholder-slate-400"
               />
@@ -390,27 +440,95 @@ export const SettingsView: React.FC = () => {
                 {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">
-              From smsethiopia.com &gt; Campaigns &gt; Your Campaign &gt; API Key.
+            <p className="text-[11px] text-slate-500 mt-1">
+              {smsProvider === 'sms_et' && (
+                <span>
+                  Log into <strong>smsethiopia.com</strong> &gt; <strong>Campaigns</strong> &gt; copy your <strong>Campaign API Key</strong> to send to anyone.
+                </span>
+              )}
             </p>
+          </div>
+        </div>
+
+        {/* Live Carrier Delivery Notice & Requirements */}
+        <div className="p-3.5 rounded-lg bg-blue-50/70 border border-blue-200 text-xs text-blue-900 space-y-1.5">
+          <div className="font-semibold flex items-center gap-1.5">
+            <Zap className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>Sending to Anyone Across Ethiopia: Requirement Note</span>
+          </div>
+          <p className="text-[11px] text-blue-800 leading-relaxed">
+            On <strong>smsethiopia.com</strong>, the initial free key is a <em>Starter (Default) Campaign</em> key restricted by carrier policy to numbers verified in your dashboard (carrier code 10007).
+            To deliver SMS to <strong>any Ethiopian mobile number</strong> (Ethio Telecom 09... and Safaricom 07...), purchase/create a campaign on smsethiopia.com and use that specific <strong>Campaign API Key</strong> above.
+          </p>
+        </div>
+
+        {/* Live Gateway Diagnostics Probe */}
+        <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/80 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <div className="font-semibold text-slate-800 text-xs flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5 text-slate-600" />
+                <span>Live Gateway Test & Diagnostics</span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Send a real test probe to your configured provider to verify live network connectivity and carrier credentials.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={diagPhone}
+                onChange={(e) => setDiagPhone(e.target.value)}
+                placeholder="251911223344"
+                className="w-36 px-2.5 py-1 text-xs font-mono border border-slate-300 rounded-md bg-white"
+              />
+              <button
+                type="button"
+                onClick={handleTestGateway}
+                disabled={diagLoading}
+                className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-md font-semibold text-xs transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {diagLoading ? <RotateCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                <span>{diagLoading ? 'Testing...' : 'Test Connection'}</span>
+              </button>
+            </div>
           </div>
 
-          <div>
-            <label className="block font-medium text-slate-700 mb-1">
-              Universal Delivery Strategy
-            </label>
-            <select
-              value={smsDeliveryMode}
-              onChange={(e) => setSmsDeliveryMode(e.target.value as any)}
-              className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-medium bg-white text-slate-800"
+          {diagResult && (
+            <div
+              className={`p-3 rounded-lg text-xs space-y-1.5 ${
+                diagResult.success
+                  ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                  : diagResult.diagnosticStatus === 'starter_campaign_restricted'
+                  ? 'bg-amber-50 border border-amber-200 text-amber-900'
+                  : 'bg-rose-50 border border-rose-200 text-rose-900'
+              }`}
             >
-              <option value="resilient">Universal Production Mode (Auto-Fallback on Carrier Sandbox Restrictions)</option>
-              <option value="direct">Direct Carrier Route (Strict Ethio Telecom Live Delivery Only)</option>
-            </select>
-            <p className="text-[11px] text-slate-400 mt-1">
-              Guarantees messages to all recipient phone numbers dispatch smoothly without carrier trial blockage.
-            </p>
-          </div>
+              <div className="flex items-center justify-between">
+                <div className="font-bold flex items-center gap-1.5">
+                  {diagResult.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  )}
+                  <span>
+                    Gateway Response: HTTP {diagResult.httpStatus || 0} ({diagResult.latencyMs || 0}ms)
+                  </span>
+                </div>
+                <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-white/70 border">
+                  Target: {diagResult.testedRecipient || diagPhone}
+                </span>
+              </div>
+              <p className="text-[11px] leading-relaxed font-medium">
+                {diagResult.recommendation}
+              </p>
+              {diagResult.rawResponse && (
+                <pre className="text-[10px] p-2 rounded bg-black/5 font-mono overflow-x-auto whitespace-pre-wrap">
+                  {JSON.stringify(diagResult.rawResponse, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Automation Toggles */}

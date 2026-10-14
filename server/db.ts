@@ -191,7 +191,7 @@ export interface AppSettings {
     inactivityTimeoutMinutes: number;
   };
   sms: {
-    provider: 'sms_et';
+    provider: 'sms_et' | 'afro_message' | 'custom_webhook';
     apiEndpoint: string;
     apiKey: string;
     senderId: string;

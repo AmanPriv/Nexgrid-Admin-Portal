@@ -17,6 +17,9 @@ import {
   Layers,
   Check,
   ChevronRight,
+  AlertCircle,
+  Zap,
+  Shield,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
 import { MessageLog, MessageTemplate, AppSettings, Customer } from '../types.ts';
@@ -44,6 +47,30 @@ export const MessagingView: React.FC = () => {
     providerRef?: string;
     error?: string;
   } | null>(null);
+
+  // Live Gateway Diagnostic State
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagResult, setDiagResult] = useState<any>(null);
+  const [showDiagPanel, setShowDiagPanel] = useState(false);
+
+  const handleRunDiagnostic = async () => {
+    setDiagLoading(true);
+    setDiagResult(null);
+    try {
+      const res = await api.diagnoseGateway(customPhone || '251911223344');
+      setDiagResult(res);
+      setShowDiagPanel(true);
+    } catch (err: any) {
+      setDiagResult({
+        success: false,
+        diagnosticStatus: 'network_error',
+        recommendation: err.message || 'Diagnostic failed to communicate with server.',
+      });
+      setShowDiagPanel(true);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
 
   // Bulk Broadcast State
   const [bulkAudience, setBulkAudience] = useState<'all' | 'manual'>('all');
@@ -381,43 +408,134 @@ export const MessagingView: React.FC = () => {
       {/* 2. Compose & Dispatch SMS (Send to Anyone) */}
       {activeSubTab === 'compose' && (
         <div className="max-w-2xl mx-auto bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-4 text-xs">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900">Compose & Dispatch Live SMS</h3>
-            <p className="text-slate-500 text-[11px] mt-0.5">
-              Send SMS notifications to any phone number or registered client across Ethio Telecom and Safaricom networks.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Compose & Dispatch Live SMS</h3>
+              <p className="text-slate-500 text-[11px] mt-0.5">
+                Send SMS notifications to any phone number across Ethio Telecom (09...) and Safaricom (07...).
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRunDiagnostic}
+              disabled={diagLoading}
+              className="px-3 py-1.5 rounded-lg border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 font-medium text-[11px] flex items-center gap-1.5 shrink-0 transition-colors disabled:opacity-50"
+            >
+              {diagLoading ? <RotateCw className="w-3.5 h-3.5 animate-spin text-blue-600" /> : <Shield className="w-3.5 h-3.5 text-blue-600" />}
+              <span>{diagLoading ? 'Testing Gateway...' : 'Test Gateway Connection'}</span>
+            </button>
           </div>
 
-          {composeResult && (
+          {/* Diagnostic Probe Results */}
+          {showDiagPanel && diagResult && (
             <div
-              className={`p-3 rounded-lg text-xs flex items-start gap-2.5 ${
-                composeResult.status === 'sent' || composeResult.status === 'delivered'
+              className={`p-3.5 rounded-xl text-xs space-y-2 ${
+                diagResult.success
                   ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                  : diagResult.diagnosticStatus === 'starter_campaign_restricted'
+                  ? 'bg-amber-50 border border-amber-300 text-amber-950'
                   : 'bg-rose-50 border border-rose-200 text-rose-900'
               }`}
             >
-              {composeResult.status === 'sent' || composeResult.status === 'delivered' ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-              ) : (
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              )}
-              <div className="space-y-0.5">
-                <div className="font-bold capitalize">
-                  {composeResult.status === 'delivered' || composeResult.status === 'sent'
-                    ? 'Dispatched Successfully'
-                    : 'Dispatch Failed'}
+              <div className="flex items-center justify-between">
+                <div className="font-bold flex items-center gap-2">
+                  {diagResult.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  )}
+                  <span>
+                    Gateway Diagnostic: HTTP {diagResult.httpStatus || 0} ({diagResult.latencyMs || 0}ms)
+                  </span>
                 </div>
-                {composeResult.messageId && (
-                  <div className="font-mono text-[11px] text-emerald-700">
-                    Message ID: {composeResult.messageId}
-                  </div>
-                )}
-                {composeResult.error && (
-                  <div className="leading-relaxed text-rose-700 text-[11px]">
-                    {composeResult.error}
-                  </div>
-                )}
+                <button
+                  onClick={() => setShowDiagPanel(false)}
+                  className="text-slate-400 hover:text-slate-600 text-xs px-1"
+                >
+                  ✕
+                </button>
               </div>
+              <p className="text-[11px] leading-relaxed">
+                {diagResult.recommendation}
+              </p>
+              {diagResult.diagnosticStatus === 'starter_campaign_restricted' && (
+                <div className="p-2.5 rounded-lg bg-white/80 border border-amber-200 text-[11px] space-y-1">
+                  <div className="font-bold text-amber-900">How to send to anyone in Ethiopia:</div>
+                  <ol className="list-decimal list-inside space-y-0.5 text-slate-700">
+                    <li>Log into <a href="https://smsethiopia.com" target="_blank" rel="noreferrer" className="text-blue-600 font-semibold underline">smsethiopia.com</a></li>
+                    <li>Go to <strong>Campaigns</strong> and activate a package</li>
+                    <li>Copy your <strong>Campaign API Key</strong> and update it in Settings &gt; SMS Gateway</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+          )}
+
+          {composeResult && (
+            <div className="space-y-2">
+              <div
+                className={`p-3.5 rounded-xl text-xs flex items-start gap-2.5 ${
+                  composeResult.status === 'sent' || composeResult.status === 'delivered'
+                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+                    : 'bg-rose-50 border border-rose-200 text-rose-900'
+                }`}
+              >
+                {composeResult.status === 'sent' || composeResult.status === 'delivered' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                )}
+                <div className="space-y-1 w-full">
+                  <div className="font-bold capitalize text-sm">
+                    {composeResult.status === 'delivered' || composeResult.status === 'sent'
+                      ? 'Dispatched Successfully'
+                      : 'Carrier Dispatch Failed'}
+                  </div>
+                  {composeResult.messageId && (
+                    <div className="font-mono text-[11px] text-slate-600">
+                      Record ID: {composeResult.messageId}
+                    </div>
+                  )}
+                  {composeResult.error && (
+                    <div className="leading-relaxed text-rose-800 text-[11px] font-medium p-2 rounded bg-white/80 border border-rose-200">
+                      {composeResult.error}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actionable guide if carrier rejected due to starter campaign key */}
+              {composeResult.error &&
+                (composeResult.error.includes('10007') ||
+                  composeResult.error.includes('Starter') ||
+                  composeResult.error.includes('Campaign')) && (
+                  <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 space-y-2 text-xs">
+                    <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                      <Zap className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Why Didn't The Recipient Get The SMS? (Error 10007 Explained)</span>
+                    </div>
+                    <p className="text-[11px] text-amber-900/90 leading-relaxed">
+                      The message was <strong>rejected at the SMS Ethiopia gateway</strong> because the currently configured API key is from a <strong>Starter (free trial)</strong> campaign. Starter trial keys only deliver to numbers verified in your SMS Ethiopia dashboard.
+                    </p>
+                    <div className="text-[11px] bg-white/90 p-2.5 rounded-lg border border-amber-200 space-y-1.5">
+                      <div className="font-bold text-slate-900">To enable sending live SMS to ANY recipient:</div>
+                      <ol className="list-decimal list-inside space-y-1 text-slate-700">
+                        <li>
+                          Sign in to <a href="https://smsethiopia.com" target="_blank" rel="noreferrer" className="text-blue-600 font-bold underline inline-flex items-center gap-0.5">smsethiopia.com <ExternalLink className="w-3 h-3 inline" /></a>
+                        </li>
+                        <li>
+                          Navigate to <strong>Campaigns</strong> (or Top Up credits via Telebirr/CBE) and select your active Campaign.
+                        </li>
+                        <li>
+                          Copy the dedicated <strong>Campaign API Key</strong>.
+                        </li>
+                        <li>
+                          Paste that Campaign API Key into <strong>Settings &gt; SMS Gateway Configuration</strong>.
+                        </li>
+                      </ol>
+                    </div>
+                  </div>
+                )}
             </div>
           )}
 

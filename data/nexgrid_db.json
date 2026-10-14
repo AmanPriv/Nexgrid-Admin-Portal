@@ -9,7 +9,7 @@
       "passwordHash": "9d0eb2f31cd6aff2dda63d82e525f3a739b6da698d22bfbca2e34ea4c51839169060bd6812d670d9b5785436140b0cc5f4eb8898a2eddaa4f37eaed6f00db9c1",
       "salt": "596df60860c1ec55f3e4a62bbdb44ac65e39d6dba67846f1cde5455d4d3e90ef",
       "createdAt": "2026-10-14T15:17:30.221Z",
-      "lastLoginAt": "2026-10-14T15:21:16.001Z",
+      "lastLoginAt": "2026-10-14T15:53:18.139Z",
       "mfaEnabled": false
     }
   ],
@@ -222,6 +222,20 @@
   ],
   "messageLogs": [
     {
+      "id": "MSG-1791993215274-812",
+      "customerId": "DIRECT",
+      "customerName": "Direct Recipient",
+      "recipient": "+251911223344",
+      "channel": "sms",
+      "messageType": "direct",
+      "content": "Test message from NexGrid",
+      "status": "failed",
+      "attemptCount": 1,
+      "lastAttemptAt": "2026-10-14T15:53:35.704Z",
+      "createdAt": "2026-10-14T15:53:35.274Z",
+      "errorDetails": "Carrier Restriction (Error 10007): SMS Ethiopia rejected delivery because this API key is from a Starter/Free trial campaign, which can only deliver to phone numbers verified in your dashboard. To send SMS to anyone across Ethiopia (09... Ethio Telecom and 07... Safaricom), create/activate a Campaign in smsethiopia.com and paste your Campaign API Key into Settings > SMS Gateway."
+    },
+    {
       "id": "MSG-1791991287949-237",
       "customerId": "DIRECT",
       "customerName": "Direct Recipient",
@@ -312,6 +326,27 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "AUD-1791993215704-81",
+      "timestamp": "2026-10-14T15:53:35.704Z",
+      "adminId": "ADM-SYS-001",
+      "adminName": "System Administrator",
+      "action": "DIRECT_SMS_SENT",
+      "entityType": "notification",
+      "entityId": "MSG-1791993215274-812",
+      "details": "Dispatched SMS to +251911223344 (Status: failed)"
+    },
+    {
+      "id": "AUD-1791993198139-630",
+      "timestamp": "2026-10-14T15:53:18.139Z",
+      "adminId": "ADM-SYS-001",
+      "adminName": "System Administrator",
+      "action": "ADMIN_QUICK_LOGIN",
+      "entityType": "auth",
+      "entityId": "ADM-SYS-001",
+      "details": "Admin admin signed in via quick access",
+      "ipAddress": "127.0.0.1"
+    },
     {
       "id": "AUD-1791991288413-173",
       "timestamp": "2026-10-14T15:21:28.413Z",
@@ -425,7 +460,7 @@
         -1,
         -3
       ],
-      "lastSchedulerRun": "2026-10-14T15:21:14.717Z"
+      "lastSchedulerRun": "2026-10-14T15:53:19.576Z"
     }
   }
 }

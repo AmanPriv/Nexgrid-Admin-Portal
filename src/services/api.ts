@@ -505,6 +505,23 @@ export const api = {
     });
   },
 
+  async diagnoseGateway(phone?: string): Promise<{
+    success: boolean;
+    httpStatus: number;
+    latencyMs: number;
+    provider: string;
+    endpoint: string;
+    testedRecipient: string;
+    diagnosticStatus: string;
+    rawResponse?: any;
+    recommendation: string;
+  }> {
+    return request('/api/messages/diagnose-gateway', {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    });
+  },
+
   async getTemplates(): Promise<{ templates: MessageTemplate[] }> {
     return request('/api/templates');
   },

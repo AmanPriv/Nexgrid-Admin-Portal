@@ -48,6 +48,7 @@ import {
   renderTemplate,
   isValidPhone,
   normalizeEthiopianPhone,
+  formatMsisdn,
   dispatchSmsEthiopia,
 } from './server/sms.ts';
 import {
@@ -2129,6 +2130,140 @@ app.post('/api/messages/send-bulk', requireAuth, async (req: AuthenticatedReques
     failed,
     results,
   });
+});
+
+// Live Gateway Diagnostic Probe
+app.post('/api/messages/diagnose-gateway', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const db = getDb();
+  const sms = db.settings.sms;
+  const testPhone = req.body?.phone ? String(req.body.phone).trim() : '251911223344';
+  const cleanKey = sms.apiKey ? sms.apiKey.trim() : '';
+
+  if (!sms.enabled) {
+    return res.json({
+      success: false,
+      status: 'disabled',
+      configured: false,
+      recommendation: 'SMS notification service is disabled in NexGrid Settings.',
+    });
+  }
+
+  if (!cleanKey) {
+    return res.json({
+      success: false,
+      status: 'missing_key',
+      configured: false,
+      recommendation: 'No SMS Gateway API Key is configured. Enter your API Key in Settings > SMS Gateway.',
+    });
+  }
+
+  const endpoint = sms.apiEndpoint?.trim() || 'https://smsethiopia.com/api/sms/send';
+  const msisdn = formatMsisdn(testPhone);
+  const startTime = Date.now();
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+
+    const provider = sms.provider || 'sms_et';
+    let payload: any;
+    let headers: Record<string, string>;
+
+    if (provider === 'afro_message') {
+      headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cleanKey}`,
+      };
+      payload = {
+        to: msisdn,
+        message: 'NexGrid live SMS connectivity test.',
+        ...(sms.senderId ? { from: sms.senderId } : {}),
+      };
+    } else {
+      headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'KEY': cleanKey,
+      };
+      payload = {
+        msisdn,
+        text: 'NexGrid live SMS connectivity test.',
+        ...(sms.senderId ? { sender_id: sms.senderId } : {}),
+      };
+    }
+
+    const fetchRes = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+
+    const latencyMs = Date.now() - startTime;
+    const rawText = await fetchRes.text();
+    let responseData: any = {};
+    try {
+      responseData = JSON.parse(rawText);
+    } catch {
+      responseData = { raw: rawText };
+    }
+
+    const isWhitelistError =
+      responseData?.error_code === 10007 ||
+      responseData?.status === 'DEFAULT_CAMPAIGN_RECIPIENT_NOT_WHITELISTED' ||
+      (typeof responseData?.error_message === 'string' &&
+        (responseData.error_message.includes('10007') ||
+          responseData.error_message.includes('DEFAULT_CAMPAIGN_RECIPIENT_NOT_WHITELISTED')));
+
+    let diagnosticStatus = 'unknown';
+    let recommendation = '';
+
+    if (fetchRes.ok) {
+      diagnosticStatus = 'live_connected';
+      recommendation =
+        'SMS Gateway is active and verified live carrier transmission with Ethio Telecom / Safaricom.';
+    } else if (isWhitelistError) {
+      diagnosticStatus = 'starter_campaign_restricted';
+      recommendation =
+        'Your API Key is valid and communicates with SMS Ethiopia, but belongs to a Starter/Free test campaign. Starter campaigns only deliver to phone numbers verified in your dashboard. To send to ANY phone number across Ethiopia, go to https://smsethiopia.com > Campaigns, activate your campaign package, and paste your Campaign API Key into Settings > SMS Gateway.';
+    } else if (fetchRes.status === 401 || fetchRes.status === 403) {
+      diagnosticStatus = 'unauthorized';
+      recommendation =
+        'Authentication failed. The API Key was rejected by the provider. Please verify your credentials at smsethiopia.com.';
+    } else if (fetchRes.status === 402) {
+      diagnosticStatus = 'insufficient_balance';
+      recommendation =
+        'Account balance is depleted. Please top up your SMS credits at smsethiopia.com.';
+    } else {
+      diagnosticStatus = 'gateway_error';
+      recommendation =
+        responseData?.error_message || responseData?.message || `Gateway returned HTTP ${fetchRes.status}`;
+    }
+
+    res.json({
+      success: fetchRes.ok,
+      httpStatus: fetchRes.status,
+      latencyMs,
+      provider,
+      endpoint,
+      testedRecipient: msisdn,
+      diagnosticStatus,
+      rawResponse: responseData,
+      recommendation,
+    });
+  } catch (err: any) {
+    res.json({
+      success: false,
+      httpStatus: 0,
+      latencyMs: Date.now() - startTime,
+      provider: sms.provider || 'sms_et',
+      endpoint,
+      testedRecipient: msisdn,
+      diagnosticStatus: 'network_error',
+      recommendation: `Network error connecting to SMS Gateway: ${err.message}`,
+    });
+  }
 });
 
 app.get('/api/templates', requireAuth, (req, res) => {
