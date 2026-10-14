@@ -22,7 +22,7 @@ GitHub Pages is a **static file host**. It only serves raw HTML, CSS, and browse
 4. Connect your GitHub repository.
 5. Configure the following:
    - **Environment**: `Node`
-   - **Build Command**: `npm install && npm run build`
+   - **Build Command**: `npm install --legacy-peer-deps && npm run build`
    - **Start Command**: `npm start`
 6. Click **Deploy Web Service**.
 7. Render will provide a free live URL (e.g. `https://nexgrid-admin.onrender.com`) where both frontend and backend run seamlessly!
