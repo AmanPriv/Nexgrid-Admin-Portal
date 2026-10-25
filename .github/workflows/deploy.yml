@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -23,20 +23,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
         with:
-          node-version: 20
-          cache: 'npm'
+          enablement: true
+        continue-on-error: true
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build production bundle
-        run: npm run build
-
-      - name: Copy 404.html for SPA routing
-        run: cp dist/index.html dist/404.html
+      - name: Prepare production artifact
+        run: |
+          mkdir -p dist/assets dist/public/gh-pages
+          cp public/gh-pages/index.prod.html dist/index.html
+          cp public/gh-pages/index.prod.html dist/404.html
+          cp public/gh-pages/*.js public/gh-pages/*.css dist/assets/
+          cp public/gh-pages/*.js public/gh-pages/*.css dist/public/gh-pages/
+          if [ -d "public/assets" ]; then
+            cp -r public/assets/* dist/assets/ 2>/dev/null || true
+          fi
+          touch dist/.nojekyll
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
