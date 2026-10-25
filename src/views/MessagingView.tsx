@@ -719,7 +719,12 @@ export const MessagingView: React.FC = () => {
 
             <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-slate-600 text-[11px] flex items-center justify-between">
               <div>
-                Sender ID: <strong className="text-slate-800">{settings?.sms.senderId || 'NexGrid'}</strong>
+                Sender ID:{' '}
+                <strong className="text-slate-800">
+                  {settings?.sms.senderId && settings.sms.senderId.toLowerCase() !== 'nexgrid'
+                    ? settings.sms.senderId
+                    : 'Default Sender ID (SMS Ethiopia)'}
+                </strong>
               </div>
               <div>
                 Endpoint: <strong className="font-mono text-slate-800">{settings?.sms.apiEndpoint || 'smsethiopia.com'}</strong>

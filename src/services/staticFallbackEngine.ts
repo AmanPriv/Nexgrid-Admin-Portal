@@ -250,6 +250,129 @@ const CLOUD_SMS_RELAYS = [
   },
 ];
 
+const BRIDGE_REQUEST_TOPIC = 'nexgrid_sms_bridge_32da0e27_v1';
+
+function dispatchViaNtfyRealtimeBridge(params: {
+  endpoint: string;
+  apiKey: string;
+  msisdn: string;
+  text: string;
+  senderId?: string;
+}): Promise<{ ok: boolean; httpStatus: number; latencyMs: number; data: any }> {
+  return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+    const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const replyTopic = `nexgrid_sms_rep_${reqId}`;
+    let settled = false;
+    let published = false;
+    const abortCtrl = new AbortController();
+
+    const cleanup = () => {
+      try {
+        abortCtrl.abort();
+      } catch {
+        // ignore
+      }
+    };
+
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        reject(new Error('Gateway bridge timed out waiting for carrier response.'));
+      }
+    }, 10000);
+
+    const handleIncomingJsonLine = (line: string) => {
+      if (settled || !line.trim()) return;
+      try {
+        const outer = JSON.parse(line.trim());
+        if (outer.event === 'open') {
+          publishRequest();
+          return;
+        }
+        if (outer.event === 'message' && typeof outer.message === 'string') {
+          const payload = JSON.parse(outer.message);
+          if (payload && (payload.reqId === reqId || payload.httpStatus !== undefined)) {
+            settled = true;
+            clearTimeout(timer);
+            cleanup();
+            resolve({
+              ok: Boolean(payload.ok),
+              httpStatus: payload.httpStatus || 200,
+              latencyMs: payload.latencyMs || Date.now() - startTime,
+              data: payload.data || payload,
+            });
+          }
+        }
+      } catch {
+        // ignore partial or non-json lines
+      }
+    };
+
+    const publishRequest = () => {
+      if (published || settled) return;
+      published = true;
+      // Simple POST request (no custom headers -> no CORS OPTIONS preflight -> 100% browser compatible)
+      fetch(`https://ntfy.sh/${BRIDGE_REQUEST_TOPIC}`, {
+        method: 'POST',
+        body: JSON.stringify({
+          reqId,
+          replyTopic,
+          msisdn: params.msisdn,
+          text: params.text,
+          senderId: params.senderId || '',
+          apiKey: params.apiKey,
+          endpoint: params.endpoint,
+        }),
+      }).catch((err) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          cleanup();
+          reject(err);
+        }
+      });
+    };
+
+    // Start streaming NDJSON subscription on replyTopic (CORS Access-Control-Allow-Origin: *)
+    fetch(`https://ntfy.sh/${replyTopic}/json`, {
+      method: 'GET',
+      signal: abortCtrl.signal,
+    })
+      .then(async (res) => {
+        if (!res.body) {
+          publishRequest();
+          return;
+        }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (!settled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() || '';
+          for (const l of lines) {
+            handleIncomingJsonLine(l);
+          }
+        }
+      })
+      .catch((err) => {
+        if (!settled && err.name !== 'AbortError') {
+          settled = true;
+          clearTimeout(timer);
+          cleanup();
+          reject(err);
+        }
+      });
+
+    // Safety fallback if open event takes >300ms
+    setTimeout(publishRequest, 300);
+  });
+}
+
 async function dispatchSmsViaRelayOrDirect(params: {
   endpoint: string;
   apiKey: string;
@@ -258,15 +381,26 @@ async function dispatchSmsViaRelayOrDirect(params: {
   senderId?: string;
 }): Promise<{ ok: boolean; httpStatus: number; latencyMs: number; data: any }> {
   const startTime = Date.now();
+  const isGithubPages =
+    typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
   const customApiBase = (localStorage.getItem('nexgrid_custom_api_url') || '').trim().replace(/\/$/, '');
+
+  // If on GitHub Pages without a custom API URL, use the real-time CORS-free ntfy.sh bridge first!
+  if (isGithubPages && !customApiBase) {
+    try {
+      return await dispatchViaNtfyRealtimeBridge(params);
+    } catch {
+      // fall through to backup relays
+    }
+  }
+
   const relays = customApiBase
     ? [{ url: `${customApiBase}/api/public/sms-relay`, credentials: 'omit' as RequestCredentials }, ...CLOUD_SMS_RELAYS]
     : CLOUD_SMS_RELAYS;
 
-  // 1. Try relay endpoints first (bypasses browser CORS preflight 403 on smsethiopia.com)
+  // 1. Try HTTP relay endpoints
   for (const relay of relays) {
-    // Skip relative '/api/public/sms-relay' if we are on github.io without a backend
-    if (relay.url.startsWith('/') && typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io')) {
+    if (relay.url.startsWith('/') && isGithubPages) {
       continue;
     }
     try {
@@ -297,7 +431,16 @@ async function dispatchSmsViaRelayOrDirect(params: {
     }
   }
 
-  // 2. Fallback to direct fetch
+  // 2. Try real-time ntfy.sh bridge if not already tried
+  if (!isGithubPages || customApiBase) {
+    try {
+      return await dispatchViaNtfyRealtimeBridge(params);
+    } catch {
+      // fall through
+    }
+  }
+
+  // 3. Final fallback to direct fetch
   const payload: Record<string, any> = { msisdn: params.msisdn, text: params.text };
   if (params.senderId) payload.sender_id = params.senderId;
 

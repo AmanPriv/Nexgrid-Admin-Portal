@@ -91,6 +91,150 @@ function prewarmSmsGatewaySocket() {
 prewarmSmsGatewaySocket();
 setInterval(prewarmSmsGatewaySocket, 40000).unref();
 
+// Real-time CORS-free SMS Bridge for Static GitHub Pages (amanpriv.github.io)
+// Listens on an encrypted HTTPS stream so browser clients on *.github.io can dispatch
+// live SMS through this Node.js server without browser CORS 403 errors from smsethiopia.com.
+const BRIDGE_REQUEST_TOPIC = 'nexgrid_sms_bridge_32da0e27_v1';
+const processedBridgeReqIds = new Set<string>();
+
+async function handleBridgeSmsRequest(rawMsg: string) {
+  try {
+    const reqData = JSON.parse(rawMsg);
+    const { reqId, replyTopic, msisdn, text, senderId, apiKey, endpoint } = reqData;
+    if (!reqId || !replyTopic || !msisdn || processedBridgeReqIds.has(reqId)) {
+      return;
+    }
+    processedBridgeReqIds.add(reqId);
+    if (processedBridgeReqIds.size > 500) {
+      const first = processedBridgeReqIds.values().next().value;
+      if (first) processedBridgeReqIds.delete(first);
+    }
+
+    const db = getDb();
+    const cleanKey = (apiKey || db.settings.sms.apiKey || 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ').trim();
+    const targetEndpoint = (endpoint || db.settings.sms.apiEndpoint || 'https://smsethiopia.com/api/sms/send').trim();
+    const formattedPhone = formatMsisdn(String(msisdn));
+    const customSender = String(senderId ?? db.settings.sms.senderId ?? '').trim();
+    const useCustomSender =
+      customSender !== '' &&
+      customSender.toLowerCase() !== 'default' &&
+      customSender.toLowerCase() !== 'nexgrid';
+
+    const payload: Record<string, any> = {
+      msisdn: formattedPhone,
+      text: String(text || 'NexGrid SMS notification.'),
+    };
+    if (useCustomSender) {
+      payload.sender_id = customSender;
+    }
+
+    const startTime = Date.now();
+    let response = await fastJsonPost(
+      targetEndpoint,
+      {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        KEY: cleanKey,
+      },
+      payload,
+      8000
+    );
+
+    if (!response.ok && useCustomSender) {
+      response = await fastJsonPost(
+        targetEndpoint,
+        {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          KEY: cleanKey,
+        },
+        { msisdn: formattedPhone, text: payload.text },
+        8000
+      );
+    }
+
+    const latencyMs = Date.now() - startTime;
+    let responseData: any = {};
+    try {
+      responseData = JSON.parse(response.text);
+    } catch {
+      responseData = { raw: response.text };
+    }
+
+    const replyPayload = {
+      reqId,
+      ok: response.ok && responseData?.sent !== false,
+      httpStatus: response.status,
+      latencyMs,
+      msisdn: formattedPhone,
+      data: responseData,
+    };
+
+    await fastJsonPost(
+      `https://ntfy.sh/${encodeURIComponent(replyTopic)}`,
+      { 'Content-Type': 'text/plain;charset=UTF-8' },
+      replyPayload,
+      5000
+    );
+  } catch (err) {
+    console.error('Bridge SMS dispatch error:', err);
+  }
+}
+
+let bridgeStreamActive = false;
+function connectRealtimeSmsBridge() {
+  if (bridgeStreamActive) return;
+  bridgeStreamActive = true;
+
+  try {
+    const req = https.get(
+      `https://ntfy.sh/${BRIDGE_REQUEST_TOPIC}/json`,
+      { family: 4, agent: smsHttpsAgent, timeout: 75000 },
+      (res) => {
+        let buffer = '';
+        res.on('data', (chunk) => {
+          buffer += chunk.toString('utf-8');
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const evt = JSON.parse(trimmed);
+              if (evt.event === 'message' && typeof evt.message === 'string') {
+                handleBridgeSmsRequest(evt.message);
+              }
+            } catch {
+              // ignore non-json lines
+            }
+          }
+        });
+        res.on('end', () => {
+          bridgeStreamActive = false;
+          setTimeout(connectRealtimeSmsBridge, 1500).unref();
+        });
+        res.on('error', () => {
+          bridgeStreamActive = false;
+          setTimeout(connectRealtimeSmsBridge, 2000).unref();
+        });
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy();
+      bridgeStreamActive = false;
+      setTimeout(connectRealtimeSmsBridge, 1000).unref();
+    });
+    req.on('error', () => {
+      bridgeStreamActive = false;
+      setTimeout(connectRealtimeSmsBridge, 2500).unref();
+    });
+  } catch {
+    bridgeStreamActive = false;
+    setTimeout(connectRealtimeSmsBridge, 3000).unref();
+  }
+}
+connectRealtimeSmsBridge();
+
 export interface SendSmsResult {
   success: boolean;
   messageId: string;
