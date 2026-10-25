@@ -20,9 +20,19 @@ import {
   AlertCircle,
   Zap,
   Shield,
+  Copy,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
 import { MessageLog, MessageTemplate, AppSettings, Customer } from '../types.ts';
+
+function toSmsEthiopiaMsisdn(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.startsWith('2510') && digits.length === 13) return `251${digits.slice(4)}`;
+  if (digits.startsWith('251') && digits.length >= 12) return digits.slice(0, 12);
+  if ((digits.startsWith('09') || digits.startsWith('07')) && digits.length === 10) return `251${digits.slice(1)}`;
+  if ((digits.startsWith('9') || digits.startsWith('7')) && digits.length === 9) return `251${digits}`;
+  return digits;
+}
 
 export const MessagingView: React.FC = () => {
   const [logs, setLogs] = useState<MessageLog[]>([]);
@@ -52,6 +62,29 @@ export const MessagingView: React.FC = () => {
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagResult, setDiagResult] = useState<any>(null);
   const [showDiagPanel, setShowDiagPanel] = useState(false);
+  const [copiedWhitelistPhone, setCopiedWhitelistPhone] = useState(false);
+  const [copiedAllWhitelist, setCopiedAllWhitelist] = useState(false);
+
+  const copyRecipientForWhitelist = () => {
+    const msisdn = toSmsEthiopiaMsisdn(customPhone);
+    navigator.clipboard.writeText(msisdn);
+    setCopiedWhitelistPhone(true);
+    setTimeout(() => setCopiedWhitelistPhone(false), 2000);
+  };
+
+  const copyAllCustomerNumbersForWhitelist = () => {
+    const list = Array.from(
+      new Set(
+        customers
+          .map((c) => toSmsEthiopiaMsisdn(c.phone || ''))
+          .filter((m) => m.length === 12 && m.startsWith('251'))
+      )
+    );
+    if (list.length === 0) return;
+    navigator.clipboard.writeText(list.join('\n'));
+    setCopiedAllWhitelist(true);
+    setTimeout(() => setCopiedAllWhitelist(false), 2000);
+  };
 
   const handleRunDiagnostic = async () => {
     setDiagLoading(true);
@@ -305,10 +338,13 @@ export const MessagingView: React.FC = () => {
               <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span>Endpoint: <strong className="font-mono text-slate-700">{settings?.sms.apiEndpoint || 'https://smsethiopia.com/api/sms/send'}</strong></span>
                 <span>·</span>
-                <span>Sender ID: <strong className="text-slate-700">{settings?.sms.senderId || 'NexGrid'}</strong></span>
-                <span>·</span>
                 <span>
-                  Delivery Strategy: <strong className="text-slate-700 font-medium">Universal Production Mode</strong>
+                  Sender ID:{' '}
+                  <strong className="text-slate-700">
+                    {!settings?.sms.senderId || settings.sms.senderId.toLowerCase() === 'nexgrid'
+                      ? 'SMS Ethiopia Default Sender ID (Default Campaign)'
+                      : settings.sms.senderId}
+                  </strong>
                 </span>
                 <span>·</span>
                 <span>
@@ -460,16 +496,43 @@ export const MessagingView: React.FC = () => {
               </p>
               {diagResult.diagnosticStatus === 'starter_campaign_restricted' && (
                 <div className="p-2.5 rounded-lg bg-white/80 border border-amber-200 text-[11px] space-y-1">
-                  <div className="font-bold text-amber-900">How to send to anyone in Ethiopia:</div>
+                  <div className="font-bold text-amber-900">SMS Ethiopia (Alet Support) — Default Campaign Steps:</div>
                   <ol className="list-decimal list-inside space-y-0.5 text-slate-700">
-                    <li>Log into <a href="https://smsethiopia.com" target="_blank" rel="noreferrer" className="text-blue-600 font-semibold underline">smsethiopia.com</a></li>
-                    <li>Go to <strong>Campaigns</strong> and activate a package</li>
-                    <li>Copy your <strong>Campaign API Key</strong> and update it in Settings &gt; SMS Gateway</li>
+                    <li>Log into <a href="https://smsethiopia.com" target="_blank" rel="noreferrer" className="text-blue-600 font-semibold underline">smsethiopia.com</a> and open your <strong>Default Campaign</strong></li>
+                    <li>Add/Whitelist the recipient phone number (<code className="font-mono bg-amber-100 px-1 rounded">{toSmsEthiopiaMsisdn(customPhone)}</code>)</li>
+                    <li>Send using the <strong>Default Sender ID</strong> (already active automatically)</li>
                   </ol>
                 </div>
               )}
             </div>
           )}
+
+          {/* Default Campaign & Whitelist Quick Helper Banner */}
+          <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 text-[11px] text-blue-950 space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="font-bold flex items-center gap-1.5 text-blue-900">
+                <Shield className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span>Default Campaign Active (Default Sender ID)</span>
+              </div>
+              {customers.length > 0 && (
+                <button
+                  type="button"
+                  onClick={copyAllCustomerNumbersForWhitelist}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white border border-blue-300 hover:bg-blue-50 text-blue-700 font-semibold text-[10px] cursor-pointer self-start sm:self-auto"
+                >
+                  {copiedAllWhitelist ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  <span>
+                    {copiedAllWhitelist
+                      ? 'Copied All Customer Numbers!'
+                      : `Copy All ${customers.length} Customer Numbers for Whitelist`}
+                  </span>
+                </button>
+              )}
+            </div>
+            <p className="text-blue-800 leading-relaxed">
+              Per <strong>SMS Ethiopia (Alet Support Team)</strong>: While your business registration is pending, SMS dispatches use the <strong>Default Campaign</strong> and <strong>Default Sender ID</strong>. Ensure recipient numbers (<code className="font-mono bg-white px-1 py-0.5 rounded border border-blue-200">{toSmsEthiopiaMsisdn(customPhone) || '2519XXXXXXXX'}</code>) are whitelisted in your <a href="https://smsethiopia.com" target="_blank" rel="noreferrer" className="underline font-semibold">smsethiopia.com</a> Default Campaign before sending.
+            </p>
+          </div>
 
           {composeResult && (
             <div className="space-y-2">
@@ -504,33 +567,42 @@ export const MessagingView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Actionable guide if carrier rejected due to starter campaign key */}
+              {/* Actionable guide if carrier rejected due to Default Campaign whitelist */}
               {composeResult.error &&
                 (composeResult.error.includes('10007') ||
-                  composeResult.error.includes('Starter') ||
-                  composeResult.error.includes('Campaign')) && (
+                  composeResult.error.includes('Whitelist') ||
+                  composeResult.error.includes('Default Campaign')) && (
                   <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 space-y-2 text-xs">
                     <div className="font-bold flex items-center gap-1.5 text-amber-900">
                       <Zap className="w-4 h-4 text-amber-600 shrink-0" />
-                      <span>Why Didn't The Recipient Get The SMS? (Error 10007 Explained)</span>
+                      <span>Default Campaign Whitelist Required for {toSmsEthiopiaMsisdn(customPhone)}</span>
                     </div>
                     <p className="text-[11px] text-amber-900/90 leading-relaxed">
-                      The message was <strong>rejected at the SMS Ethiopia gateway</strong> because the currently configured API key is from a <strong>Starter (free trial)</strong> campaign. Starter trial keys only deliver to numbers verified in your SMS Ethiopia dashboard.
+                      Per <strong>SMS Ethiopia (Alet Support Team)</strong>: When sending through the <strong>Default Campaign</strong> (before company registration & custom Sender ID approval), you must whitelist the recipient phone number first.
                     </p>
-                    <div className="text-[11px] bg-white/90 p-2.5 rounded-lg border border-amber-200 space-y-1.5">
-                      <div className="font-bold text-slate-900">To enable sending live SMS to ANY recipient:</div>
+                    <div className="text-[11px] bg-white/90 p-2.5 rounded-lg border border-amber-200 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-900">
+                          Number to Whitelist: <code className="font-mono text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">{toSmsEthiopiaMsisdn(customPhone)}</code>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={copyRecipientForWhitelist}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[10px] cursor-pointer"
+                        >
+                          {copiedWhitelistPhone ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedWhitelistPhone ? 'Copied!' : 'Copy Number'}</span>
+                        </button>
+                      </div>
                       <ol className="list-decimal list-inside space-y-1 text-slate-700">
                         <li>
-                          Sign in to <a href="https://smsethiopia.com" target="_blank" rel="noreferrer" className="text-blue-600 font-bold underline inline-flex items-center gap-0.5">smsethiopia.com <ExternalLink className="w-3 h-3 inline" /></a>
+                          Open <a href="https://smsethiopia.com" target="_blank" rel="noreferrer" className="text-blue-600 font-bold underline inline-flex items-center gap-0.5">smsethiopia.com <ExternalLink className="w-3 h-3 inline" /></a> and select your <strong>Default Campaign</strong>.
                         </li>
                         <li>
-                          Navigate to <strong>Campaigns</strong> (or Top Up credits via Telebirr/CBE) and select your active Campaign.
+                          Add <code className="font-mono font-bold">{toSmsEthiopiaMsisdn(customPhone)}</code> to the Default Campaign recipient whitelist.
                         </li>
                         <li>
-                          Copy the dedicated <strong>Campaign API Key</strong>.
-                        </li>
-                        <li>
-                          Paste that Campaign API Key into <strong>Settings &gt; SMS Gateway Configuration</strong>.
+                          Click <strong>Send Live SMS Now</strong> again (Default Sender ID is already configured).
                         </li>
                       </ol>
                     </div>

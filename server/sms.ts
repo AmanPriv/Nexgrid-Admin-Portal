@@ -181,25 +181,34 @@ export async function dispatchSms(
     }
   }
 
-  // 3. Official SMS Ethiopia Gateway (smsethiopia.com) - Default
+  // 3. Official SMS Ethiopia Gateway (smsethiopia.com) - Default Campaign & Registered Company Support
   let endpoint = smsConfig.apiEndpoint?.trim() || 'https://smsethiopia.com/api/sms/send';
   if (endpoint.includes('sms.et')) {
     endpoint = 'https://smsethiopia.com/api/sms/send';
   }
 
+  // Per SMS Ethiopia (Alet Support Team):
+  // If using the Default Campaign (business not yet registered for custom Sender ID),
+  // we must use SMS Ethiopia's default sender ID (do not override with unapproved sender_id).
+  const customSender = smsConfig.senderId ? smsConfig.senderId.trim() : '';
+  const useCustomSender =
+    customSender !== '' &&
+    customSender.toLowerCase() !== 'default' &&
+    customSender.toLowerCase() !== 'nexgrid';
+
   const payload: Record<string, any> = {
     msisdn,
     text: message,
   };
-  if (smsConfig.senderId && smsConfig.senderId.trim() !== '') {
-    payload.sender_id = smsConfig.senderId.trim();
+  if (useCustomSender) {
+    payload.sender_id = customSender;
   }
 
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000); // 12s timeout
 
-    const response = await fetch(endpoint, {
+    let response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -209,6 +218,21 @@ export async function dispatchSms(
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
+
+    // If a custom sender_id was sent and rejected, fallback automatically to SMS Ethiopia's Default Sender ID
+    if (!response.ok && useCustomSender) {
+      const retryPayload = { msisdn, text: message };
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'KEY': cleanKey,
+        },
+        body: JSON.stringify(retryPayload),
+        signal: controller.signal,
+      });
+    }
 
     clearTimeout(timeout);
 
@@ -247,7 +271,7 @@ export async function dispatchSms(
 
       let errorMsg = `HTTP ${response.status} (${response.statusText})`;
       if (isWhitelistError) {
-        errorMsg = `Carrier Restriction (Error 10007): SMS Ethiopia rejected delivery because this API key is from a Starter/Free trial campaign, which can only deliver to phone numbers verified in your dashboard. To send SMS to anyone across Ethiopia (09... Ethio Telecom and 07... Safaricom), create/activate a Campaign in smsethiopia.com and paste your Campaign API Key into Settings > SMS Gateway.`;
+        errorMsg = `Default Campaign Whitelist Required (Code 10007): Recipient ${msisdn} is not yet whitelisted in your SMS Ethiopia Default Campaign. Per SMS Ethiopia (Alet Support Team): while using the Default Campaign (with the default Sender ID), you must whitelist "${msisdn}" in your smsethiopia.com dashboard before sending, OR submit your business registration documents for company registration and custom Sender ID approval.`;
       } else if (response.status === 401 || response.status === 403) {
         errorMsg = `Authentication Failed: Invalid SMS Ethiopia API Key (${response.status}). Verify your key at https://smsethiopia.com`;
       } else if (response.status === 402) {

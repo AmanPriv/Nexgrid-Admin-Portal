@@ -12,6 +12,7 @@ import {
   LogOut,
   X,
   Shield,
+  UserPlus,
 } from 'lucide-react';
 import { AdminUser } from '../types.ts';
 
@@ -23,6 +24,7 @@ export type NavTab =
   | 'payments'
   | 'messaging'
   | 'reports'
+  | 'users'
   | 'audit'
   | 'settings';
 
@@ -58,6 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'payments' as NavTab, label: 'Payments', icon: CreditCard },
     { id: 'messaging' as NavTab, label: 'SMS & Messaging', icon: MessageSquare },
     { id: 'reports' as NavTab, label: 'Reports', icon: BarChart3 },
+    { id: 'users' as NavTab, label: 'Users & Access', icon: UserPlus },
     { id: 'audit' as NavTab, label: 'Audit Logs', icon: ShieldCheck },
     { id: 'settings' as NavTab, label: 'Settings & Backup', icon: Settings },
   ];

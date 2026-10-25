@@ -171,6 +171,24 @@ export const api = {
     return res;
   },
 
+  async registerPrimaryAdmin(data: {
+    fullName: string;
+    username: string;
+    email: string;
+    password: string;
+  }): Promise<{ token: string; csrfToken: string; admin: AdminUser; timeoutMinutes: number }> {
+    const res = await request<{ token: string; csrfToken: string; admin: AdminUser; timeoutMinutes: number }>(
+      '/api/auth/setup/register',
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    setStoredToken(res.token);
+    if (res.csrfToken) setStoredCsrf(res.csrfToken);
+    return res;
+  },
+
   async login(
     username: string,
     password: string
@@ -187,17 +205,6 @@ export const api = {
     const res = await request<any>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
-    });
-    if (res.token) {
-      setStoredToken(res.token);
-      if (res.csrfToken) setStoredCsrf(res.csrfToken);
-    }
-    return res;
-  },
-
-  async quickLogin(): Promise<{ token: string; csrfToken: string; admin: AdminUser; timeoutMinutes: number }> {
-    const res = await request<any>('/api/auth/quick-login', {
-      method: 'POST',
     });
     if (res.token) {
       setStoredToken(res.token);
@@ -267,6 +274,45 @@ export const api = {
     return request('/api/auth/reset-password', {
       method: 'POST',
       body: JSON.stringify({ email, code, newPassword }),
+    });
+  },
+
+  // User Management (Primary Admin Only)
+  async getUsers(): Promise<{ users: AdminUser[] }> {
+    return request('/api/users');
+  },
+
+  async createUser(data: {
+    fullName: string;
+    username: string;
+    email: string;
+    password: string;
+    role: 'super_admin' | 'admin';
+  }): Promise<{ user: AdminUser }> {
+    return request('/api/users', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateUser(
+    id: string,
+    data: {
+      fullName?: string;
+      email?: string;
+      role?: 'super_admin' | 'admin';
+      newPassword?: string;
+    }
+  ): Promise<{ user: AdminUser }> {
+    return request(`/api/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteUser(id: string): Promise<{ success: boolean }> {
+    return request(`/api/users/${id}`, {
+      method: 'DELETE',
     });
   },
 

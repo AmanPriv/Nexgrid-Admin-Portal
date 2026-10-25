@@ -13,6 +13,7 @@ import { MessagingView } from './views/MessagingView.tsx';
 import { ReportsView } from './views/ReportsView.tsx';
 import { AuditLogsView } from './views/AuditLogsView.tsx';
 import { SettingsView } from './views/SettingsView.tsx';
+import { UsersView } from './views/UsersView.tsx';
 
 export default function App() {
   const [admin, setAdmin] = useState<AdminUser | null>(null);
@@ -215,6 +216,10 @@ export default function App() {
 
           {currentTab === 'reports' && (
             <ReportsView key={`rep-${refreshKey}`} />
+          )}
+
+          {currentTab === 'users' && (
+            <UsersView key={`usr-${refreshKey}`} currentAdmin={admin} />
           )}
 
           {currentTab === 'audit' && (

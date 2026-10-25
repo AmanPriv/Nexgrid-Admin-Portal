@@ -9,7 +9,6 @@ import {
   ArrowRight,
   CheckCircle2,
   KeyRound,
-  QrCode,
   Copy,
   Download,
   Smartphone,
@@ -18,13 +17,9 @@ import {
   Check,
   Clock,
   Server,
-  ExternalLink,
-  HelpCircle,
   Globe,
-  Terminal,
-  ChevronDown,
-  ChevronUp,
-  Zap,
+  UserPlus,
+  Mail,
 } from 'lucide-react';
 import { api, getApiBase, setCustomApiUrl } from '../services/api.ts';
 import { AdminUser } from '../types.ts';
@@ -34,14 +29,12 @@ interface LoginViewProps {
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
-  // Mode: checking status, setup wizard, or standard login
   const [checkingSetup, setCheckingSetup] = useState(true);
   const [setupRequired, setSetupRequired] = useState(false);
-  const [systemSetupSecret, setSystemSetupSecret] = useState<string | null>(null);
 
-  // Standard Login State
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  // Standard Login State (strictly empty — no prefilled demo credentials)
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,8 +51,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [totpInput, setTotpInput] = useState('');
   const [recoveryCodeInput, setRecoveryCodeInput] = useState('');
 
-  // Setup Wizard State
+  // One-Time Primary Administrator Signup State
   const [setupStep, setSetupStep] = useState<1 | 2>(1);
+  const [enableMfaOnSignup, setEnableMfaOnSignup] = useState(false);
   const [setupForm, setSetupForm] = useState({
     setupSecret: '',
     username: '',
@@ -90,10 +84,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [resetError, setResetError] = useState<string | null>(null);
   const [apiConnectionError, setApiConnectionError] = useState<string | null>(null);
 
-  // External / Multi-Host API URL configuration (e.g. GitHub Pages frontend -> Render backend)
+  // External API URL configuration
   const [customApiUrl, setCustomApiUrlState] = useState(() => getApiBase());
   const [showApiConfig, setShowApiConfig] = useState(false);
-  const [showDeployGuide, setShowDeployGuide] = useState(false);
   const [apiSaveSuccess, setApiSaveSuccess] = useState(false);
 
   const handleSaveApiUrl = (e: React.FormEvent) => {
@@ -111,12 +104,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     checkStatus();
   };
 
-  // Check setup status on mount
   useEffect(() => {
     checkStatus();
   }, []);
 
-  // Lockout countdown timer
   useEffect(() => {
     if (!lockoutSeconds || lockoutSeconds <= 0) return;
     const interval = setInterval(() => {
@@ -132,7 +123,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       const res = await api.getSetupStatus();
       setSetupRequired(res.setupRequired);
       if (res.setupRequired && res.setupSecret) {
-        setSystemSetupSecret(res.setupSecret);
         setSetupForm((prev) => ({ ...prev, setupSecret: res.setupSecret || '' }));
       }
     } catch (err: any) {
@@ -166,22 +156,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     };
   };
 
-  // Instant 1-Click Administrator Access
-  const handleQuickLogin = async () => {
-    setError(null);
-    setLoading(true);
-    try {
-      const res = await api.quickLogin();
-      if (res.token && res.admin) {
-        onLoginSuccess(res.admin, res.timeoutMinutes || 60);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Quick login failed. Please sign in with master credentials.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Standard Login Submit
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,7 +182,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       if (err.status === 429 && err.retryAfterSeconds) {
         setLockoutSeconds(err.retryAfterSeconds);
       }
-      setError(err.message || 'Login failed. Please verify credentials.');
+      setError(err.message || 'Login failed. Please verify your username and password.');
     } finally {
       setLoading(false);
     }
@@ -242,14 +216,14 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  // Setup Wizard: Step 1 -> Step 2
-  const handleInitiateSetup = async (e: React.FormEvent) => {
+  // One-Time Primary Administrator Registration Submit
+  const handlePrimarySignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     const strength = calculatePasswordStrength(setupForm.password);
     if (!strength.isValid) {
-      setError('Password must be at least 12 characters and contain uppercase, lowercase, numbers, and symbols.');
+      setError('Password must be at least 12 characters and include at least 3 of: uppercase, lowercase, numbers, and special symbols.');
       return;
     }
 
@@ -260,17 +234,27 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
     setLoading(true);
     try {
-      const res = await api.initiateSetup(setupForm.setupSecret);
-      setMfaEnrollmentData(res.mfa);
-      setSetupStep(2);
+      if (enableMfaOnSignup) {
+        const res = await api.initiateSetup(setupForm.setupSecret);
+        setMfaEnrollmentData(res.mfa);
+        setSetupStep(2);
+      } else {
+        const res = await api.registerPrimaryAdmin({
+          fullName: setupForm.fullName,
+          username: setupForm.username,
+          email: setupForm.email,
+          password: setupForm.password,
+        });
+        onLoginSuccess(res.admin, res.timeoutMinutes || 60);
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to validate setup secret. Please inspect server configuration.');
+      setError(err.message || 'Failed to create primary administrator account.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Setup Wizard: Step 2 Complete
+  // Setup Wizard: Step 2 Complete (when MFA is enabled during signup)
   const handleCompleteSetup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!mfaEnrollmentData) return;
@@ -337,10 +321,11 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      const res = await api.requestPasswordReset(resetEmail);
-      if (res.verificationCode) {
-        setResetCode(res.verificationCode);
-        setResetMessage(`Verification code generated: ${res.verificationCode}. Enter it below with your new password.`);
+      const res: any = await api.requestPasswordReset(resetEmail);
+      const token = res.resetToken || res.verificationCode;
+      if (token) {
+        setResetCode(token);
+        setResetMessage(`Recovery token generated. Enter your new password below.`);
       } else {
         setResetMessage(res.message);
       }
@@ -395,7 +380,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 selection:bg-blue-600 selection:text-white">
-      {/* Background ambient lighting */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-slate-950 to-slate-950 pointer-events-none" />
 
       <div className="relative w-full max-w-lg z-10">
@@ -424,7 +408,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               </div>
             </div>
 
-            {/* Quick Action Toolbar */}
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <button
                 type="button"
@@ -445,11 +428,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               </button>
             </div>
 
-            {/* Configurable API URL form */}
             {showApiConfig && (
               <form onSubmit={handleSaveApiUrl} className="pt-2 border-t border-slate-800 space-y-2">
                 <label className="block text-slate-300 font-medium text-[11px]">
-                  Backend Server URL (e.g. Render, Railway, or VPS):
+                  Backend Server URL:
                 </label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
@@ -485,65 +467,28 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 )}
               </form>
             )}
-
-            {/* Deployment Guide */}
-            {showDeployGuide && (
-              <div className="pt-3 border-t border-slate-800 space-y-3 text-slate-300">
-                <div className="font-semibold text-slate-200 flex items-center gap-1.5 text-xs">
-                  <Terminal className="w-4 h-4 text-indigo-400" />
-                  <span>3 Fast Ways to Deploy NexGrid with Backend:</span>
-                </div>
-
-                <div className="space-y-2 text-[11px]">
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <div className="font-bold text-white mb-0.5">1. Render.com (Free & Recommended)</div>
-                    <p className="text-slate-400">
-                      Sign in to <span className="text-blue-400 font-mono">render.com</span> → Click <strong>New +</strong> → <strong>Web Service</strong> → Select your GitHub repo. Set <strong>Build Command</strong> to <code className="text-emerald-400">npm run build</code> and <strong>Start Command</strong> to <code className="text-emerald-400">npm start</code>. Both the frontend and backend run automatically!
-                    </p>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <div className="font-bold text-white mb-0.5">2. Railway.app or Fly.io (Instant Container)</div>
-                    <p className="text-slate-400">
-                      Connect your GitHub repo to Railway or Fly.io. The included <code className="text-indigo-400">Dockerfile</code> builds and launches both the frontend SPA and Node.js backend on standard PORT.
-                    </p>
-                  </div>
-
-                  <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800">
-                    <div className="font-bold text-white mb-0.5">3. Local Run on your machine or VPS</div>
-                    <p className="text-slate-400">
-                      Clone repo, run <code className="text-amber-400">npm install</code>, then <code className="text-amber-400">npm start</code> or <code className="text-amber-400">npm run dev</code>. Open <span className="text-blue-400 font-mono">http://localhost:3000</span>.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
         {/* =========================================================================
-            SCENARIO 1: FIRST-TIME ADMINISTRATOR SETUP WIZARD (0 ADMINS IN SYSTEM)
+            SCENARIO 1: ONE-TIME PRIMARY ADMINISTRATOR SIGNUP (0 USERS IN SYSTEM)
            ========================================================================= */}
         {setupRequired ? (
           <div className="bg-slate-900/95 backdrop-blur-md rounded-2xl border border-blue-900/40 p-6 sm:p-8 shadow-2xl shadow-black/80">
             <div className="flex items-center justify-between pb-4 mb-5 border-b border-slate-800">
               <div>
-                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[10px] font-semibold text-amber-400 mb-1">
-                  Initial Provisioning
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30 text-[10px] font-semibold text-blue-400 mb-1.5">
+                  <UserPlus className="w-3 h-3" />
+                  <span>One-Time Primary Signup</span>
                 </div>
                 <h2 className="text-base font-bold text-white">
-                  {setupStep === 1 ? 'First-Administrator Setup' : 'Mandatory MFA Enrollment'}
+                  {setupStep === 1 ? 'Create Primary Administrator Account' : 'Complete Two-Factor Authentication'}
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-400 mt-0.5">
                   {setupStep === 1
-                    ? 'All prior data has been reset. Configure your master credentials.'
-                    : 'Configure your authenticator app to complete setup.'}
+                    ? 'Register the primary owner account. Once created, public signup is permanently disabled and all other users are created by you.'
+                    : 'Scan the QR code below with your authenticator app to finish setup.'}
                 </p>
-              </div>
-              <div className="text-right">
-                <span className="text-xs font-mono font-bold text-blue-400">
-                  Step {setupStep} of 2
-                </span>
               </div>
             </div>
 
@@ -554,95 +499,62 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               </div>
             )}
 
-            {/* Express 1-Click Initialization */}
-            <div className="mb-5 p-3.5 rounded-xl bg-gradient-to-r from-blue-950/80 to-slate-900 border border-blue-500/40 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-blue-200 flex items-center gap-1.5">
-                  <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
-                  Express Setup & Instant Access
-                </span>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-mono">
-                  Instant
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-300">
-                Initialize master administrator credentials and launch straight into the dashboard with demo data and SMS gateway active.
-              </p>
-              <button
-                type="button"
-                onClick={handleQuickLogin}
-                disabled={loading}
-                className="w-full py-2.5 px-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-lg shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                {loading ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <>
-                    <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-                    <span>1-Click Initialize & Enter Portal</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            <div className="relative flex py-2 items-center mb-4">
-              <div className="flex-grow border-t border-slate-800"></div>
-              <span className="flex-shrink mx-3 text-[10px] text-slate-500 uppercase tracking-wider font-medium">Or configure custom master credentials</span>
-              <div className="flex-grow border-t border-slate-800"></div>
-            </div>
-
             {setupStep === 1 ? (
-              /* STEP 1: CREDENTIALS */
-              <form onSubmit={handleInitiateSetup} className="space-y-4">
-
+              <form onSubmit={handlePrimarySignup} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-300 mb-1">
-                      Administrator Username *
+                      Full Name *
+                    </label>
+                    <div className="relative">
+                      <User className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        required
+                        value={setupForm.fullName}
+                        onChange={(e) => setSetupForm({ ...setupForm, fullName: e.target.value })}
+                        placeholder="e.g. Amanuel Getahun"
+                        className="w-full pl-8 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">
+                      Primary Username *
                     </label>
                     <input
                       type="text"
                       required
                       value={setupForm.username}
                       onChange={(e) => setSetupForm({ ...setupForm, username: e.target.value })}
-                      placeholder="e.g. sysadmin"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">
-                      Full Name *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={setupForm.fullName}
-                      onChange={(e) => setSetupForm({ ...setupForm, fullName: e.target.value })}
-                      placeholder="e.g. Amanuel Getahun"
-                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      placeholder="e.g. amanuel"
+                      className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
                     />
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">
-                    Official Administrator Email *
+                    Administrator Email *
                   </label>
-                  <input
-                    type="email"
-                    required
-                    value={setupForm.email}
-                    onChange={(e) => setSetupForm({ ...setupForm, email: e.target.value })}
-                    placeholder="admin@nexgrid.et"
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
+                  <div className="relative">
+                    <Mail className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                    <input
+                      type="email"
+                      required
+                      value={setupForm.email}
+                      onChange={(e) => setSetupForm({ ...setupForm, email: e.target.value })}
+                      placeholder="you@company.com"
+                      className="w-full pl-8 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
 
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-medium text-slate-300">
-                      Master Password (OWASP Standard) *
+                      Master Password *
                     </label>
                     <button
                       type="button"
@@ -662,7 +574,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
 
-                  {/* Password strength checklist */}
                   {setupForm.password.length > 0 && (
                     <div className="mt-2 p-2.5 rounded-lg bg-slate-950/70 border border-slate-800 text-[11px] space-y-1">
                       <div className="font-semibold text-slate-300 mb-1">Password Requirements:</div>
@@ -701,23 +612,35 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   />
                 </div>
 
+                <label className="flex items-center gap-2.5 p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enableMfaOnSignup}
+                    onChange={(e) => setEnableMfaOnSignup(e.target.checked)}
+                    className="rounded text-blue-600 bg-slate-900 border-slate-700"
+                  />
+                  <span>Enable Authenticator App (2FA / TOTP) during signup</span>
+                </label>
+
                 <button
                   type="submit"
                   disabled={loading || !pwStrength.isValid}
-                  className="w-full mt-2 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                  className="w-full mt-2 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                 >
                   {loading ? (
                     <RefreshCw className="w-4 h-4 animate-spin" />
                   ) : (
                     <>
-                      <span>Proceed to MFA Enrollment</span>
+                      <span>
+                        {enableMfaOnSignup ? 'Proceed to 2FA Setup' : 'Create Primary Account & Enter Portal'}
+                      </span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </button>
               </form>
             ) : (
-              /* STEP 2: TOTP QR CODE & EMERGENCY RECOVERY CODES */
+              /* STEP 2: OPTIONAL TOTP QR CODE & EMERGENCY RECOVERY CODES */
               <form onSubmit={handleCompleteSetup} className="space-y-4">
                 <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
                   <div className="flex items-center gap-2 text-xs font-semibold text-white">
@@ -729,7 +652,11 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     {mfaEnrollmentData?.qrCodeSvg && (
                       <div
                         className="w-32 h-32 shrink-0 bg-white"
-                        dangerouslySetInnerHTML={{ __html: decodeURIComponent(mfaEnrollmentData.qrCodeSvg.replace('data:image/svg+xml;utf8,', '')) }}
+                        dangerouslySetInnerHTML={{
+                          __html: decodeURIComponent(
+                            mfaEnrollmentData.qrCodeSvg.replace('data:image/svg+xml;utf8,', '')
+                          ),
+                        }}
                       />
                     )}
                     <div className="text-xs space-y-1.5 w-full">
@@ -795,12 +722,11 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                       className="mt-0.5 rounded text-blue-600 bg-slate-900 border-slate-700"
                     />
                     <span>
-                      I have securely saved these emergency recovery codes. I understand that losing access to my authenticator device and recovery codes will permanently lock this portal.
+                      I have securely saved these emergency recovery codes.
                     </span>
                   </label>
                 </div>
 
-                {/* 6-digit TOTP Verification */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-200 mb-1">
                     Enter 6-Digit Code From Authenticator App *
@@ -845,11 +771,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           </div>
         ) : (
           /* =========================================================================
-              SCENARIO 2: STANDARD ADMINISTRATOR LOGIN / MFA CHALLENGE
+              SCENARIO 2: STANDARD USER SIGN IN (SIGNUP CLOSED, MANAGED BY PRIMARY)
              ========================================================================= */
           <div className="bg-slate-900/90 backdrop-blur-md rounded-2xl border border-slate-800 p-6 sm:p-8 shadow-2xl shadow-black/60">
             {mfaChallenge ? (
-              /* MFA 2ND STEP CHALLENGE */
               <form onSubmit={handleMfaSubmit} className="space-y-4">
                 <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800">
                   <div>
@@ -960,15 +885,17 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 </div>
               </form>
             ) : (
-              /* PRIMARY LOGIN FORM */
+              /* STANDARD SIGN-IN FORM */
               <>
-                <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-800">
+                <div className="flex items-center justify-between pb-4 mb-5 border-b border-slate-800">
                   <div>
-                    <h2 className="text-base font-semibold text-white">Administrator Access</h2>
-                    <p className="text-xs text-slate-400">Enter authenticated credentials to proceed</p>
+                    <h2 className="text-base font-semibold text-white">Portal Sign In</h2>
+                    <p className="text-xs text-slate-400">
+                      Sign in with your primary or assigned user credentials
+                    </p>
                   </div>
                   <div className="px-2 py-1 rounded bg-blue-950/60 border border-blue-800/50 text-[10px] text-blue-300 font-mono font-medium">
-                    Scrypt / MFA / CSRF
+                    Secured
                   </div>
                 </div>
 
@@ -986,44 +913,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   </div>
                 )}
 
-                {/* 1-Click Fast Sign-In Card */}
-                <div className="mb-5 p-3.5 rounded-xl bg-gradient-to-r from-blue-950/70 via-indigo-950/50 to-slate-900 border border-blue-500/30 space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-blue-200 flex items-center gap-1.5">
-                      <Zap className="w-4 h-4 text-amber-400 fill-amber-400" />
-                      Instant Access Mode
-                    </span>
-                    <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-mono">
-                      admin / admin123
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-300 leading-relaxed">
-                    Access customer records, domains, billing, and SMS Ethiopia live dispatch immediately.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleQuickLogin}
-                    disabled={loading}
-                    className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-bold rounded-lg shadow-lg shadow-blue-900/40 transition-all flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    {loading ? (
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <>
-                        <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-                        <span>One-Click Sign In as Administrator</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="relative flex py-2 items-center mb-4">
-                  <div className="flex-grow border-t border-slate-800"></div>
-                  <span className="flex-shrink mx-3 text-[10px] text-slate-500 uppercase tracking-wider font-medium">Or authenticate manually</span>
-                  <div className="flex-grow border-t border-slate-800"></div>
-                </div>
-
                 <form onSubmit={handleLoginSubmit} className="space-y-4">
                   <div>
                     <label className="block text-xs font-medium text-slate-300 mb-1.5">
@@ -1039,7 +928,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                         autoComplete="username"
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
-                        placeholder="Enter administrator username"
+                        placeholder="Enter your username or email"
                         className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                       />
                     </div>
@@ -1068,7 +957,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                         autoComplete="current-password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Enter master password"
+                        placeholder="Enter your password"
                         className="w-full pl-9 pr-10 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                       />
                       <button
@@ -1084,18 +973,24 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   <button
                     type="submit"
                     disabled={loading || (lockoutSeconds !== null && lockoutSeconds > 0)}
-                    className="w-full mt-2 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="w-full mt-2 py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-blue-900/40 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                   >
                     {loading ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
                     ) : (
                       <>
-                        <span>Authenticate</span>
+                        <span>Sign In</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
                   </button>
                 </form>
+
+                <div className="mt-5 pt-4 border-t border-slate-800/80 text-center">
+                  <p className="text-[11px] text-slate-400">
+                    New user accounts can only be created by the Primary Administrator inside the portal.
+                  </p>
+                </div>
               </>
             )}
           </div>
@@ -1151,7 +1046,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             {resetStep === 'request' ? (
               <form onSubmit={handleRequestReset} className="space-y-3">
                 <p className="text-slate-400">
-                  Enter your registered administrator email address to generate an emergency verification code.
+                  Enter your registered administrator email address to generate an emergency recovery token.
                 </p>
                 <div>
                   <label className="block text-slate-300 mb-1 font-medium">Administrator Email</label>
@@ -1160,7 +1055,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     required
                     value={resetEmail}
                     onChange={(e) => setResetEmail(e.target.value)}
-                    placeholder="admin@nexgrid.et"
+                    placeholder="you@company.com"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white"
                   />
                 </div>
@@ -1184,13 +1079,13 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             ) : (
               <form onSubmit={handleCompleteReset} className="space-y-3">
                 <div>
-                  <label className="block text-slate-300 mb-1 font-medium">Verification Code</label>
+                  <label className="block text-slate-300 mb-1 font-medium">Verification Token</label>
                   <input
                     type="text"
                     required
                     value={resetCode}
                     onChange={(e) => setResetCode(e.target.value)}
-                    placeholder="Enter verification code"
+                    placeholder="Enter verification token"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-white font-mono"
                   />
                 </div>

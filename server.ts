@@ -213,7 +213,80 @@ app.post('/api/auth/setup/initiate', (req, res) => {
   });
 });
 
-// Step 2: Complete first-run setup
+// Direct 1-Step One-Time Primary Administrator Registration (Only allowed when 0 users exist)
+app.post('/api/auth/setup/register', (req, res) => {
+  const db = getDb();
+  if (db.admins.length > 0) {
+    return res.status(403).json({
+      error: 'Primary administrator signup has already been completed. New users can only be created by the primary administrator.',
+    });
+  }
+
+  const { username, email, fullName, password } = req.body;
+  if (!username || !email || !password || !fullName) {
+    return res.status(400).json({ error: 'Full Name, Username, Email, and Password are required.' });
+  }
+
+  const pwCheck = validatePasswordStrength(password);
+  if (!pwCheck.valid) {
+    return res.status(400).json({ error: pwCheck.reason });
+  }
+
+  // Consume setup secret if one exists
+  const currentSecret = getOrCreateSetupSecret();
+  verifyAndConsumeSetupSecret(currentSecret);
+
+  const { hash, salt } = createPasswordHash(password);
+  const adminId = 'ADM-001';
+
+  const initialAdmin: Admin = {
+    id: adminId,
+    username: username.trim().toLowerCase(),
+    email: email.trim().toLowerCase(),
+    passwordHash: hash,
+    salt,
+    fullName: fullName.trim(),
+    role: 'super_admin',
+    createdAt: new Date().toISOString(),
+    lastLoginAt: new Date().toISOString(),
+    mfaEnabled: false,
+  };
+
+  db.admins.push(initialAdmin);
+  saveDb(db);
+
+  logAudit(
+    initialAdmin.id,
+    initialAdmin.fullName,
+    'PRIMARY_ADMIN_REGISTERED',
+    'auth',
+    initialAdmin.id,
+    `Primary administrator "${initialAdmin.username}" (${initialAdmin.email}) completed one-time signup. Public signup is now permanently closed.`,
+    req.ip
+  );
+
+  const ip = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
+  const ua = req.headers['user-agent'] || 'Unknown';
+  const { token, csrfToken } = createSession(initialAdmin.id, ip, ua);
+
+  res.status(201).json({
+    success: true,
+    token,
+    csrfToken,
+    admin: {
+      id: initialAdmin.id,
+      username: initialAdmin.username,
+      email: initialAdmin.email,
+      fullName: initialAdmin.fullName,
+      role: initialAdmin.role,
+      lastLoginAt: initialAdmin.lastLoginAt,
+      mfaEnabled: false,
+    },
+    timeoutMinutes: db.settings.general.inactivityTimeoutMinutes || 60,
+  });
+});
+
+// Step 2: Complete first-run setup (with optional MFA)
 app.post('/api/auth/setup/complete', (req, res) => {
   const db = getDb();
   if (db.admins.length > 0) {
@@ -405,56 +478,10 @@ app.post('/api/auth/login', (req, res) => {
   });
 });
 
-// Quick 1-Click Administrator Sign-In
+// Quick login permanently disabled (no demo accounts allowed)
 app.post('/api/auth/quick-login', (req, res) => {
-  const db = getDb();
-  let admin = db.admins[0];
-  if (!admin) {
-    admin = {
-      id: 'ADM-SYS-001',
-      username: 'admin',
-      email: 'admin@nexgrid.et',
-      fullName: 'System Administrator',
-      role: 'super_admin',
-      passwordHash: '9d0eb2f31cd6aff2dda63d82e525f3a739b6da698d22bfbca2e34ea4c51839169060bd6812d670d9b5785436140b0cc5f4eb8898a2eddaa4f37eaed6f00db9c1',
-      salt: '596df60860c1ec55f3e4a62bbdb44ac65e39d6dba67846f1cde5455d4d3e90ef',
-      createdAt: new Date().toISOString(),
-      lastLoginAt: new Date().toISOString(),
-      mfaEnabled: false,
-    };
-    db.admins.push(admin);
-    saveDb(db);
-  }
-
-  const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
-  const ua = req.headers['user-agent'] || 'Unknown';
-  const { token, csrfToken } = createSession(admin.id, clientIp, ua);
-  admin.lastLoginAt = new Date().toISOString();
-  saveDb(db);
-
-  logAudit(
-    admin.id,
-    admin.fullName,
-    'ADMIN_QUICK_LOGIN',
-    'auth',
-    admin.id,
-    `Admin ${admin.username} signed in via quick access`,
-    clientIp
-  );
-
-  return res.json({
-    token,
-    csrfToken,
-    admin: {
-      id: admin.id,
-      username: admin.username,
-      email: admin.email,
-      fullName: admin.fullName,
-      role: admin.role,
-      lastLoginAt: admin.lastLoginAt,
-      mfaEnabled: false,
-    },
-    timeoutMinutes: db.settings.general.inactivityTimeoutMinutes || 60,
+  return res.status(403).json({
+    error: 'Demo quick-login is disabled. Please sign in with your administrator credentials.',
   });
 });
 
@@ -774,6 +801,195 @@ app.post('/api/auth/reset-password', (req, res) => {
   );
 
   res.json({ success: true, message: 'Password has been reset successfully. Please sign in with your new credentials.' });
+});
+
+// ================= 1B. USER MANAGEMENT (PRIMARY ADMIN ONLY) =================
+app.get('/api/users', requireAuth, (req: AuthenticatedRequest, res) => {
+  const db = getDb();
+  const users = db.admins.map((a, idx) => ({
+    id: a.id,
+    username: a.username,
+    email: a.email,
+    fullName: a.fullName,
+    role: a.role,
+    createdAt: a.createdAt,
+    lastLoginAt: a.lastLoginAt,
+    mfaEnabled: Boolean(a.mfaEnabled),
+    isPrimary: idx === 0,
+  }));
+  res.json({ users });
+});
+
+app.post('/api/users', requireAuth, (req: AuthenticatedRequest, res) => {
+  const db = getDb();
+  const isPrimaryOrSuper = req.admin!.role === 'super_admin' || (db.admins.length > 0 && db.admins[0].id === req.admin!.id);
+  if (!isPrimaryOrSuper) {
+    return res.status(403).json({ error: 'Only the Primary Administrator can create new user accounts.' });
+  }
+
+  const { fullName, username, email, password, role } = req.body;
+  if (!fullName || !username || !email || !password) {
+    return res.status(400).json({ error: 'Full Name, Username, Email, and Password are required.' });
+  }
+
+  const cleanUsername = username.trim().toLowerCase();
+  const cleanEmail = email.trim().toLowerCase();
+
+  if (db.admins.some((a) => a.username.toLowerCase() === cleanUsername)) {
+    return res.status(400).json({ error: `Username "${cleanUsername}" is already in use.` });
+  }
+
+  if (db.admins.some((a) => a.email.toLowerCase() === cleanEmail)) {
+    return res.status(400).json({ error: `Email "${cleanEmail}" is already registered to another user.` });
+  }
+
+  const pwCheck = validatePasswordStrength(password);
+  if (!pwCheck.valid) {
+    return res.status(400).json({ error: pwCheck.reason });
+  }
+
+  const { hash, salt } = createPasswordHash(password);
+  const nextNum = db.admins.length + 1;
+  const newUserId = `ADM-${String(nextNum).padStart(3, '0')}-${Math.floor(100 + Math.random() * 900)}`;
+
+  const newUser: Admin = {
+    id: newUserId,
+    username: cleanUsername,
+    email: cleanEmail,
+    passwordHash: hash,
+    salt,
+    fullName: fullName.trim(),
+    role: role === 'super_admin' ? 'super_admin' : 'admin',
+    createdAt: new Date().toISOString(),
+    lastLoginAt: null,
+    mfaEnabled: false,
+  };
+
+  db.admins.push(newUser);
+  saveDb(db);
+
+  logAudit(
+    req.admin!.id,
+    req.admin!.fullName,
+    'USER_ACCOUNT_CREATED',
+    'auth',
+    newUser.id,
+    `Primary admin created user account "${newUser.username}" (${newUser.fullName}) with role ${newUser.role}`,
+    req.ip
+  );
+
+  res.status(201).json({
+    user: {
+      id: newUser.id,
+      username: newUser.username,
+      email: newUser.email,
+      fullName: newUser.fullName,
+      role: newUser.role,
+      createdAt: newUser.createdAt,
+      lastLoginAt: newUser.lastLoginAt,
+      mfaEnabled: false,
+      isPrimary: false,
+    },
+  });
+});
+
+app.put('/api/users/:id', requireAuth, (req: AuthenticatedRequest, res) => {
+  const db = getDb();
+  const isPrimaryOrSuper = req.admin!.role === 'super_admin' || (db.admins.length > 0 && db.admins[0].id === req.admin!.id);
+  if (!isPrimaryOrSuper) {
+    return res.status(403).json({ error: 'Only the Primary Administrator can modify user accounts.' });
+  }
+
+  const targetUser = db.admins.find((a) => a.id === req.params.id);
+  if (!targetUser) {
+    return res.status(404).json({ error: 'User account not found.' });
+  }
+
+  const { fullName, email, role, newPassword } = req.body;
+  if (fullName) targetUser.fullName = fullName.trim();
+  if (email) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (db.admins.some((a) => a.id !== targetUser.id && a.email.toLowerCase() === cleanEmail)) {
+      return res.status(400).json({ error: 'Email is already in use by another user.' });
+    }
+    targetUser.email = cleanEmail;
+  }
+
+  // Primary user (index 0) always retains super_admin role
+  if (role && db.admins[0]?.id !== targetUser.id) {
+    targetUser.role = role === 'super_admin' ? 'super_admin' : 'admin';
+  }
+
+  if (newPassword && newPassword.trim() !== '') {
+    const pwCheck = validatePasswordStrength(newPassword);
+    if (!pwCheck.valid) {
+      return res.status(400).json({ error: pwCheck.reason });
+    }
+    const { hash, salt } = createPasswordHash(newPassword);
+    targetUser.passwordHash = hash;
+    targetUser.salt = salt;
+    revokeAllSessionsForAdmin(targetUser.id);
+  }
+
+  saveDb(db);
+
+  logAudit(
+    req.admin!.id,
+    req.admin!.fullName,
+    'USER_ACCOUNT_UPDATED',
+    'auth',
+    targetUser.id,
+    `Updated user account "${targetUser.username}"`,
+    req.ip
+  );
+
+  res.json({
+    user: {
+      id: targetUser.id,
+      username: targetUser.username,
+      email: targetUser.email,
+      fullName: targetUser.fullName,
+      role: targetUser.role,
+      createdAt: targetUser.createdAt,
+      lastLoginAt: targetUser.lastLoginAt,
+      mfaEnabled: Boolean(targetUser.mfaEnabled),
+      isPrimary: db.admins[0]?.id === targetUser.id,
+    },
+  });
+});
+
+app.delete('/api/users/:id', requireAuth, (req: AuthenticatedRequest, res) => {
+  const db = getDb();
+  const isPrimaryOrSuper = req.admin!.role === 'super_admin' || (db.admins.length > 0 && db.admins[0].id === req.admin!.id);
+  if (!isPrimaryOrSuper) {
+    return res.status(403).json({ error: 'Only the Primary Administrator can delete user accounts.' });
+  }
+
+  const targetIndex = db.admins.findIndex((a) => a.id === req.params.id);
+  if (targetIndex === -1) {
+    return res.status(404).json({ error: 'User account not found.' });
+  }
+
+  if (targetIndex === 0 || db.admins[targetIndex].id === req.admin!.id) {
+    return res.status(400).json({ error: 'Cannot delete the Primary Administrator account or your own active account.' });
+  }
+
+  const removed = db.admins[targetIndex];
+  revokeAllSessionsForAdmin(removed.id);
+  db.admins.splice(targetIndex, 1);
+  saveDb(db);
+
+  logAudit(
+    req.admin!.id,
+    req.admin!.fullName,
+    'USER_ACCOUNT_DELETED',
+    'auth',
+    removed.id,
+    `Deleted user account "${removed.username}" (${removed.fullName})`,
+    req.ip
+  );
+
+  res.json({ success: true });
 });
 
 // ================= 2. DASHBOARD ROUTES =================
@@ -2185,10 +2401,15 @@ app.post('/api/messages/diagnose-gateway', requireAuth, async (req: Authenticate
         'Accept': 'application/json',
         'KEY': cleanKey,
       };
+      const customSender = sms.senderId ? sms.senderId.trim() : '';
+      const useCustomSender =
+        customSender !== '' &&
+        customSender.toLowerCase() !== 'default' &&
+        customSender.toLowerCase() !== 'nexgrid';
       payload = {
         msisdn,
         text: 'NexGrid live SMS connectivity test.',
-        ...(sms.senderId ? { sender_id: sms.senderId } : {}),
+        ...(useCustomSender ? { sender_id: customSender } : {}),
       };
     }
 
@@ -2222,11 +2443,11 @@ app.post('/api/messages/diagnose-gateway', requireAuth, async (req: Authenticate
     if (fetchRes.ok) {
       diagnosticStatus = 'live_connected';
       recommendation =
-        'SMS Gateway is active and verified live carrier transmission with Ethio Telecom / Safaricom.';
+        `SMS Gateway is active and delivered live SMS to whitelisted recipient ${msisdn} using the Default Sender ID.`;
     } else if (isWhitelistError) {
       diagnosticStatus = 'starter_campaign_restricted';
       recommendation =
-        'Your API Key is valid and communicates with SMS Ethiopia, but belongs to a Starter/Free test campaign. Starter campaigns only deliver to phone numbers verified in your dashboard. To send to ANY phone number across Ethiopia, go to https://smsethiopia.com > Campaigns, activate your campaign package, and paste your Campaign API Key into Settings > SMS Gateway.';
+        `API Key & Default Sender ID are valid, but recipient "${msisdn}" is not yet whitelisted in your Default Campaign. Per SMS Ethiopia (Alet Support Team): if your business is not yet registered, whitelist "${msisdn}" in your Default Campaign on smsethiopia.com before sending, or submit your business registration documents for company registration and Sender ID approval.`;
     } else if (fetchRes.status === 401 || fetchRes.status === 403) {
       diagnosticStatus = 'unauthorized';
       recommendation =

@@ -56,7 +56,7 @@ export const SettingsView: React.FC = () => {
   const [smsProvider, setSmsProvider] = useState<'sms_et' | 'afro_message' | 'custom_webhook'>('sms_et');
   const [smsEndpoint, setSmsEndpoint] = useState('https://smsethiopia.com/api/sms/send');
   const [smsApiKey, setSmsApiKey] = useState('');
-  const [smsSenderId, setSmsSenderId] = useState('NexGrid');
+  const [smsSenderId, setSmsSenderId] = useState('');
   const [smsEnabled, setSmsEnabled] = useState(true);
   const [autoWelcome, setAutoWelcome] = useState(true);
   const [autoPaymentConfirm, setAutoPaymentConfirm] = useState(true);
@@ -102,7 +102,8 @@ export const SettingsView: React.FC = () => {
 
       const rawEndpoint = data.settings.sms.apiEndpoint || '';
       setSmsEndpoint(rawEndpoint.includes('sms.et') || !rawEndpoint ? 'https://smsethiopia.com/api/sms/send' : rawEndpoint);
-      setSmsSenderId(data.settings.sms.senderId || 'NexGrid');
+      const savedSender = data.settings.sms.senderId || '';
+      setSmsSenderId(savedSender.toLowerCase() === 'nexgrid' ? '' : savedSender);
       setSmsProvider((data.settings.sms.provider as any) || 'sms_et');
       setSmsEnabled(data.settings.sms.enabled);
       setAutoWelcome(data.settings.sms.autoWelcome);
@@ -401,21 +402,24 @@ export const SettingsView: React.FC = () => {
 
           <div>
             <label className="block font-medium text-slate-700 mb-1">
-              Approved Sender ID / Brand
+              Sender ID (Leave blank for Default Campaign)
             </label>
             <input
               type="text"
               value={smsSenderId}
               onChange={(e) => setSmsSenderId(e.target.value)}
-              placeholder="NexGrid (or registered Ethio Telecom alpha ID)"
-              className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-medium"
+              placeholder="Default Sender ID (Leave blank until custom Sender ID is approved)"
+              className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-medium placeholder-slate-400"
             />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Leave blank to use SMS Ethiopia's <strong>Default Sender ID</strong> (required for Default Campaign).
+            </p>
           </div>
 
           <div>
             <label className="block font-medium text-slate-700 mb-1">
               {smsProvider === 'sms_et'
-                ? 'SMS Ethiopia Campaign API Key *'
+                ? 'SMS Ethiopia API Key (Default or Approved Campaign) *'
                 : smsProvider === 'afro_message'
                 ? 'AfroMessage Auth Token *'
                 : 'Gateway API Key / Token'}
@@ -443,23 +447,27 @@ export const SettingsView: React.FC = () => {
             <p className="text-[11px] text-slate-500 mt-1">
               {smsProvider === 'sms_et' && (
                 <span>
-                  Log into <strong>smsethiopia.com</strong> &gt; <strong>Campaigns</strong> &gt; copy your <strong>Campaign API Key</strong> to send to anyone.
+                  Uses header <code className="bg-slate-100 px-1 rounded">KEY: &lt;your-api-key&gt;</code> on <code className="bg-slate-100 px-1 rounded">smsethiopia.com/api/sms/send</code>.
                 </span>
               )}
             </p>
           </div>
         </div>
 
-        {/* Live Carrier Delivery Notice & Requirements */}
+        {/* Official SMS Ethiopia (Alet Support Team) Policy Notice */}
         <div className="p-3.5 rounded-lg bg-blue-50/70 border border-blue-200 text-xs text-blue-900 space-y-1.5">
           <div className="font-semibold flex items-center gap-1.5">
             <Zap className="w-4 h-4 text-blue-600 shrink-0" />
-            <span>Sending to Anyone Across Ethiopia: Requirement Note</span>
+            <span>SMS Ethiopia (Alet Support) — Default Campaign & Sender ID Rules</span>
           </div>
-          <p className="text-[11px] text-blue-800 leading-relaxed">
-            On <strong>smsethiopia.com</strong>, the initial free key is a <em>Starter (Default) Campaign</em> key restricted by carrier policy to numbers verified in your dashboard (carrier code 10007).
-            To deliver SMS to <strong>any Ethiopian mobile number</strong> (Ethio Telecom 09... and Safaricom 07...), purchase/create a campaign on smsethiopia.com and use that specific <strong>Campaign API Key</strong> above.
-          </p>
+          <ul className="list-disc list-inside text-[11px] text-blue-800 space-y-1 leading-relaxed">
+            <li>
+              <strong>Unregistered Business (Default Campaign):</strong> You can send real SMS immediately through the <strong>Default Campaign</strong>. Leave the Sender ID field <strong>blank</strong> so the system uses SMS Ethiopia's <strong>Default Sender ID</strong>, and <strong>whitelist recipient phone numbers</strong> (<code className="bg-white/80 px-1 rounded font-mono">2519XXXXXXXX</code>) in your SMS Ethiopia dashboard before sending.
+            </li>
+            <li>
+              <strong>Registered Business (Company & Sender ID Approval):</strong> Once your business registration documents are submitted to Alet Support and your company + custom Sender ID are approved, enter your approved Sender ID above to send without whitelisting.
+            </li>
+          </ul>
         </div>
 
         {/* Live Gateway Diagnostics Probe */}

@@ -114,6 +114,8 @@ export const Header: React.FC<HeaderProps> = ({
         return 'SMS Ethiopia & Notification Center';
       case 'reports':
         return 'Financial & Operational Reports';
+      case 'users':
+        return 'System Users & Access Management';
       case 'audit':
         return 'System Audit Trail & Security Logs';
       case 'settings':

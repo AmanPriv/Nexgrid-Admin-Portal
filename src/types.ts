@@ -4,8 +4,10 @@ export interface AdminUser {
   email: string;
   fullName: string;
   role: 'super_admin' | 'admin';
+  createdAt?: string;
   lastLoginAt: string | null;
   mfaEnabled?: boolean;
+  isPrimary?: boolean;
 }
 
 export interface ActiveSession {

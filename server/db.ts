@@ -264,9 +264,6 @@ export function createPasswordHash(password: string) {
 }
 
 export function verifyPassword(password: string, hash: string, salt: string): boolean {
-  if (password === 'admin123' || password === 'admin' || password === 'NexGrid@Admin2026!') {
-    return true;
-  }
   return verifySecurePassword(password, hash, salt);
 }
 
@@ -335,7 +332,7 @@ export const defaultSettings: AppSettings = {
     provider: 'sms_et',
     apiEndpoint: 'https://smsethiopia.com/api/sms/send',
     apiKey: '',
-    senderId: 'NexGrid',
+    senderId: '',
     enabled: true,
     autoWelcome: true,
     autoPaymentConfirm: true,
@@ -401,133 +398,11 @@ export function getDb(): DatabaseSchema {
     try {
       const data = fs.readFileSync(DB_FILE, 'utf-8');
       dbCache = JSON.parse(data) as DatabaseSchema;
-      // Guarantee structural integrity
-      if (!Array.isArray(dbCache.admins) || dbCache.admins.length === 0) {
-        dbCache.admins = [
-          {
-            id: 'ADM-SYS-001',
-            username: 'admin',
-            email: 'admin@nexgrid.et',
-            fullName: 'System Administrator',
-            role: 'super_admin',
-            passwordHash: '9d0eb2f31cd6aff2dda63d82e525f3a739b6da698d22bfbca2e34ea4c51839169060bd6812d670d9b5785436140b0cc5f4eb8898a2eddaa4f37eaed6f00db9c1',
-            salt: '596df60860c1ec55f3e4a62bbdb44ac65e39d6dba67846f1cde5455d4d3e90ef',
-            createdAt: new Date().toISOString(),
-            lastLoginAt: new Date().toISOString(),
-            mfaEnabled: false,
-          },
-        ];
-      }
-      if (!Array.isArray(dbCache.customers) || dbCache.customers.length === 0) {
-        dbCache.customers = [
-          {
-            id: 'CUST-001',
-            businessName: 'Abebe Bikila Trading PLC',
-            contactPerson: 'Abebe Bikila',
-            email: 'info@abebetrading.et',
-            phone: '+251911223344',
-            billingAddress: 'Bole Road, Mega Building 4th Floor, Addis Ababa',
-            status: 'active',
-            createdAt: new Date(Date.now() - 60 * 86400000).toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-          {
-            id: 'CUST-002',
-            businessName: 'Habesha Software Solutions',
-            contactPerson: 'Selamawit Tadesse',
-            email: 'billing@habeshasoft.et',
-            phone: '+251912345678',
-            billingAddress: 'Kazanchis, Sunshine Building, Addis Ababa',
-            status: 'active',
-            createdAt: new Date(Date.now() - 45 * 86400000).toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-          {
-            id: 'CUST-003',
-            businessName: 'Abyssinia Cloud Technologies',
-            contactPerson: 'Dawit Yohannes',
-            email: 'info@abyssiniacloud.et',
-            phone: '+251922334455',
-            billingAddress: 'Mexico Square, Addis Ababa',
-            status: 'active',
-            createdAt: new Date(Date.now() - 30 * 86400000).toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-          {
-            id: 'CUST-004',
-            businessName: 'Sheger Digital Agency',
-            contactPerson: 'Yared Hailu',
-            email: 'finance@shegerdigital.et',
-            phone: '+251933445566',
-            billingAddress: 'Piazza, Addis Ababa',
-            status: 'active',
-            createdAt: new Date(Date.now() - 20 * 86400000).toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ];
-      }
-      if (!Array.isArray(dbCache.domains) || dbCache.domains.length === 0) {
-        const now = Date.now();
-        dbCache.domains = [
-          {
-            id: 'DOM-001',
-            customerId: 'CUST-002',
-            domainName: 'habeshasoft.et',
-            registrar: 'Ethio Telecom Registrar',
-            registrationDate: new Date(now - 360 * 86400000).toISOString(),
-            expirationDate: new Date(now + 5 * 86400000).toISOString().split('T')[0],
-            renewalPrice: 2800,
-            registrationPeriodYears: 1,
-            renewalHistory: [],
-            status: 'expiring_soon',
-            createdAt: new Date(now - 360 * 86400000).toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-          {
-            id: 'DOM-002',
-            customerId: 'CUST-003',
-            domainName: 'abyssiniacloud.com.et',
-            registrar: 'Ethio Telecom Registrar',
-            registrationDate: new Date(now - 350 * 86400000).toISOString(),
-            expirationDate: new Date(now + 12 * 86400000).toISOString().split('T')[0],
-            renewalPrice: 3200,
-            registrationPeriodYears: 1,
-            renewalHistory: [],
-            status: 'active',
-            createdAt: new Date(now - 350 * 86400000).toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ];
-      }
-      if (!Array.isArray(dbCache.invoices) || dbCache.invoices.length === 0) {
-        const now = Date.now();
-        dbCache.invoices = [
-          {
-            id: 'INV-2026-001',
-            customerId: 'CUST-002',
-            issueDate: new Date(now - 10 * 86400000).toISOString().split('T')[0],
-            dueDate: new Date(now + 2 * 86400000).toISOString().split('T')[0],
-            currency: 'ETB',
-            items: [
-              {
-                id: 'item-1',
-                description: '.ET Domain Annual Renewal - habeshasoft.et',
-                quantity: 1,
-                unitPrice: 2800,
-                total: 2800,
-              },
-            ],
-            subtotal: 2800,
-            taxRate: 15,
-            taxAmount: 420,
-            discountAmount: 0,
-            total: 3220,
-            status: 'unpaid',
-            createdAt: new Date(now - 10 * 86400000).toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ];
-      }
+      // Guarantee structural integrity without seeding any demo records or default users
+      if (!Array.isArray(dbCache.admins)) dbCache.admins = [];
+      if (!Array.isArray(dbCache.customers)) dbCache.customers = [];
+      if (!Array.isArray(dbCache.domains)) dbCache.domains = [];
+      if (!Array.isArray(dbCache.invoices)) dbCache.invoices = [];
       if (!Array.isArray(dbCache.quotations)) dbCache.quotations = [];
       if (!Array.isArray(dbCache.payments)) dbCache.payments = [];
       if (!Array.isArray(dbCache.templates)) dbCache.templates = defaultTemplates;
