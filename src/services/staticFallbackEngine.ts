@@ -239,8 +239,15 @@ function addAudit(db: StaticDatabase, admin: StoredAdmin | null, action: string,
 }
 
 const CLOUD_SMS_RELAYS = [
-  'https://ais-pre-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/sms-relay',
-  'https://ais-dev-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/sms-relay',
+  { url: '/api/public/sms-relay', credentials: 'same-origin' as RequestCredentials },
+  {
+    url: 'https://ais-dev-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/sms-relay',
+    credentials: 'include' as RequestCredentials,
+  },
+  {
+    url: 'https://ais-pre-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/sms-relay',
+    credentials: 'omit' as RequestCredentials,
+  },
 ];
 
 async function dispatchSmsViaRelayOrDirect(params: {
@@ -251,11 +258,21 @@ async function dispatchSmsViaRelayOrDirect(params: {
   senderId?: string;
 }): Promise<{ ok: boolean; httpStatus: number; latencyMs: number; data: any }> {
   const startTime = Date.now();
-  // 1. Try our Cloud Run relay endpoints first (bypasses browser CORS preflight 403 on smsethiopia.com)
-  for (const relayUrl of CLOUD_SMS_RELAYS) {
+  const customApiBase = (localStorage.getItem('nexgrid_custom_api_url') || '').trim().replace(/\/$/, '');
+  const relays = customApiBase
+    ? [{ url: `${customApiBase}/api/public/sms-relay`, credentials: 'omit' as RequestCredentials }, ...CLOUD_SMS_RELAYS]
+    : CLOUD_SMS_RELAYS;
+
+  // 1. Try relay endpoints first (bypasses browser CORS preflight 403 on smsethiopia.com)
+  for (const relay of relays) {
+    // Skip relative '/api/public/sms-relay' if we are on github.io without a backend
+    if (relay.url.startsWith('/') && typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io')) {
+      continue;
+    }
     try {
-      const res = await fetch(relayUrl, {
+      const res = await fetch(relay.url, {
         method: 'POST',
+        credentials: relay.credentials,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           endpoint: params.endpoint,
@@ -265,7 +282,8 @@ async function dispatchSmsViaRelayOrDirect(params: {
           senderId: params.senderId || '',
         }),
       });
-      if (res.status !== 502 && res.status !== 503 && res.status !== 404) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json') && res.status !== 502 && res.status !== 503 && res.status !== 404) {
         const json = await res.json().catch(() => ({}));
         return {
           ok: Boolean(json.success),

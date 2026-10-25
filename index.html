@@ -78,40 +78,25 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      // Fallback loader for GitHub Pages when deployed directly from the repository root branch
-      // (where /src/main.tsx is uncompiled and no Vite-built ./assets/ script is injected).
+      // Fallback loader strictly for GitHub Pages when deployed directly from the repository root branch
       (function () {
+        if (window.location.hostname.indexOf('github.io') === -1) return;
         var scripts = document.getElementsByTagName('script');
-        var hasBuiltBundle = false;
-        var hasViteClient = false;
         for (var i = 0; i < scripts.length; i++) {
           var src = scripts[i].getAttribute('src') || '';
-          if (src.indexOf('assets/index-') !== -1) hasBuiltBundle = true;
-          if (src.indexOf('@vite/client') !== -1) hasViteClient = true;
+          if (src.indexOf('assets/index-') !== -1) return;
         }
-        function injectStaticBundle() {
-          if (window.__NEXGRID_FALLBACK_LOADED__) return;
-          window.__NEXGRID_FALLBACK_LOADED__ = true;
-          var link = document.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = './public/gh-pages/bundle.css';
-          document.head.appendChild(link);
+        if (window.__NEXGRID_FALLBACK_LOADED__) return;
+        window.__NEXGRID_FALLBACK_LOADED__ = true;
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = './public/gh-pages/bundle.css?v=20261025_5';
+        document.head.appendChild(link);
 
-          var script = document.createElement('script');
-          script.type = 'module';
-          script.src = './public/gh-pages/bundle.js';
-          document.body.appendChild(script);
-        }
-        if (!hasBuiltBundle && !hasViteClient && window.location.hostname.indexOf('github.io') !== -1) {
-          injectStaticBundle();
-        } else if (!hasBuiltBundle && !hasViteClient) {
-          setTimeout(function () {
-            var root = document.getElementById('root');
-            if (root && !root.hasChildNodes()) {
-              injectStaticBundle();
-            }
-          }, 1200);
-        }
+        var script = document.createElement('script');
+        script.type = 'module';
+        script.src = './public/gh-pages/bundle.js?v=20261025_5';
+        document.body.appendChild(script);
       })();
     </script>
   </body>
