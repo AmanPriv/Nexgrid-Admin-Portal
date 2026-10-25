@@ -331,7 +331,7 @@ export const defaultSettings: AppSettings = {
   sms: {
     provider: 'sms_et',
     apiEndpoint: 'https://smsethiopia.com/api/sms/send',
-    apiKey: '',
+    apiKey: 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ',
     senderId: '',
     enabled: true,
     autoWelcome: true,
@@ -413,6 +413,12 @@ export function getDb(): DatabaseSchema {
       } else {
         if (!dbCache.settings.sms.apiEndpoint || dbCache.settings.sms.apiEndpoint.includes('sms.et')) {
           dbCache.settings.sms.apiEndpoint = 'https://smsethiopia.com/api/sms/send';
+        }
+        if (
+          !dbCache.settings.sms.apiKey ||
+          dbCache.settings.sms.apiKey === 'WF9AJSCJ04TVR94M5TNCC2ZSIHI2RNRH9Q05E52L'
+        ) {
+          dbCache.settings.sms.apiKey = 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ';
         }
         if (!dbCache.settings.sms.deliveryMode) {
           dbCache.settings.sms.deliveryMode = 'resilient';

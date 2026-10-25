@@ -11,6 +11,7 @@ import {
   AppSettings,
   DashboardMetrics,
 } from '../types.ts';
+import { handleStaticApiRequest } from './staticFallbackEngine.ts';
 
 const TOKEN_KEY = 'nexgrid_auth_token';
 const CSRF_KEY = 'nexgrid_csrf_token';
@@ -61,7 +62,37 @@ export function setCustomApiUrl(url: string | null) {
   }
 }
 
+function isStaticHostWithoutCustomBackend(): boolean {
+  if (typeof window === 'undefined') return false;
+  const apiBase = getApiBase();
+  if (apiBase) return false;
+  const host = window.location.hostname;
+  return (
+    host.endsWith('.github.io') ||
+    window.location.protocol === 'file:' ||
+    sessionStorage.getItem('nexgrid_static_mode') === 'true'
+  );
+}
+
+async function runStaticFallback<T>(endpoint: string, options: RequestInit): Promise<T> {
+  try {
+    return (await handleStaticApiRequest(endpoint, options)) as T;
+  } catch (err: any) {
+    if (err?.status === 401) {
+      clearStoredToken();
+      if (onUnauthorizedHandler) {
+        onUnauthorizedHandler();
+      }
+    }
+    throw err;
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  if (isStaticHostWithoutCustomBackend()) {
+    return runStaticFallback<T>(endpoint, options);
+  }
+
   const token = getStoredToken();
   const csrf = getStoredCsrf();
   const headers = new Headers(options.headers || {});
@@ -88,9 +119,13 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       ...options,
       headers,
     });
-  } catch (netErr: any) {
+  } catch (_netErr: any) {
+    if (!apiBase) {
+      sessionStorage.setItem('nexgrid_static_mode', 'true');
+      return runStaticFallback<T>(endpoint, options);
+    }
     throw new Error(
-      `Cannot connect to NexGrid backend API at ${fullUrl}. Ensure your Node server is running: ${netErr.message}`
+      `Cannot connect to NexGrid backend API at ${fullUrl}. Ensure your Node server is running.`
     );
   }
 
@@ -108,10 +143,14 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   if (contentType.includes('application/json')) {
     data = await response.json().catch(() => ({}));
   } else {
-    // Non-JSON response (e.g., static server returning 404 HTML on GitHub Pages)
+    // Non-JSON response (e.g., static server returning 404/405 HTML on GitHub Pages or Netlify/Vercel static)
+    if (!response.ok && !apiBase) {
+      sessionStorage.setItem('nexgrid_static_mode', 'true');
+      return runStaticFallback<T>(endpoint, options);
+    }
     if (!response.ok) {
       throw new Error(
-        `Backend API returned HTTP ${response.status} (${response.statusText}). If hosting statically on GitHub Pages, please deploy the Node.js backend or configure VITE_API_URL.`
+        `Backend API returned HTTP ${response.status} (${response.statusText}).`
       );
     }
   }
