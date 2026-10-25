@@ -66,7 +66,7 @@ export const SettingsView: React.FC = () => {
   // Gateway Diagnostics state
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagResult, setDiagResult] = useState<any>(null);
-  const [diagPhone, setDiagPhone] = useState('251911223344');
+  const [diagPhone, setDiagPhone] = useState('251983064449');
 
   // Reminders intervals
   const [reminderDaysStr, setReminderDaysStr] = useState('30, 14, 7, 3, 1');
@@ -127,8 +127,16 @@ export const SettingsView: React.FC = () => {
     setDiagLoading(true);
     setDiagResult(null);
     try {
-      const res = await api.diagnoseGateway(diagPhone);
+      const res = await api.diagnoseGateway(diagPhone, {
+        apiKey: smsApiKey.trim() || undefined,
+        senderId: smsSenderId,
+        endpoint: smsEndpoint,
+      });
       setDiagResult(res);
+      if (smsApiKey.trim()) {
+        setSmsApiKey('');
+        loadSettings();
+      }
     } catch (err: any) {
       setDiagResult({
         success: false,

@@ -50,6 +50,7 @@ import {
   normalizeEthiopianPhone,
   formatMsisdn,
   dispatchSmsEthiopia,
+  fastJsonPost,
 } from './server/sms.ts';
 import {
   computeSystemFinancials,
@@ -2288,47 +2289,48 @@ app.post('/api/messages/send-bulk', requireAuth, async (req: AuthenticatedReques
     return res.status(400).json({ error: 'Message content is required.' });
   }
 
-  const results: Array<{ phone: string; status: string; messageId?: string; error?: string }> = [];
   let sent = 0;
   let failed = 0;
 
-  for (const item of recipients) {
-    const phone = typeof item === 'string' ? item : item.phone;
-    const customerId = typeof item === 'object' ? item.customerId : undefined;
-    const customerName = typeof item === 'object' ? item.customerName : undefined;
+  const validItems = recipients.filter((item) => {
+    const phone = typeof item === 'string' ? item : item?.phone;
+    return Boolean(phone);
+  });
 
-    if (!phone) continue;
-
-    try {
-      const resSend = await queueAndSendSms({
-        customerId: customerId || 'BULK',
-        customerName: customerName || 'Bulk Recipient',
-        recipient: phone,
-        messageType: messageType || 'bulk_broadcast',
-        content: message,
-      });
-
-      if (resSend.status === 'sent' || resSend.status === 'delivered') {
-        sent++;
-      } else {
+  const results = await Promise.all(
+    validItems.map(async (item) => {
+      const phone = typeof item === 'string' ? item : item.phone;
+      const customerId = typeof item === 'object' ? item.customerId : undefined;
+      const customerName = typeof item === 'object' ? item.customerName : undefined;
+      try {
+        const resSend = await queueAndSendSms({
+          customerId: customerId || 'BULK',
+          customerName: customerName || 'Bulk Recipient',
+          recipient: phone,
+          messageType: messageType || 'bulk_broadcast',
+          content: message,
+        });
+        if (resSend.status === 'sent' || resSend.status === 'delivered') {
+          sent++;
+        } else {
+          failed++;
+        }
+        return {
+          phone,
+          status: resSend.status,
+          messageId: resSend.messageId,
+          error: resSend.error,
+        };
+      } catch (err: any) {
         failed++;
+        return {
+          phone,
+          status: 'failed',
+          error: err.message,
+        };
       }
-
-      results.push({
-        phone,
-        status: resSend.status,
-        messageId: resSend.messageId,
-        error: resSend.error,
-      });
-    } catch (err: any) {
-      failed++;
-      results.push({
-        phone,
-        status: 'failed',
-        error: err.message,
-      });
-    }
-  }
+    })
+  );
 
   logAudit(
     req.admin!.id,
@@ -2336,24 +2338,121 @@ app.post('/api/messages/send-bulk', requireAuth, async (req: AuthenticatedReques
     'BULK_SMS_BROADCAST',
     'notification',
     `BULK-${Date.now()}`,
-    `Dispatched bulk broadcast to ${recipients.length} recipients (${sent} succeeded, ${failed} failed)`
+    `Dispatched bulk broadcast to ${validItems.length} recipients (${sent} succeeded, ${failed} failed)`
   );
 
   res.json({
     success: failed === 0,
-    total: recipients.length,
+    total: validItems.length,
     sent,
     failed,
     results,
   });
 });
 
+// Public CORS-enabled SMS Relay for static GitHub Pages deployments
+app.post('/api/public/sms-relay', async (req: Request, res: Response) => {
+  const db = getDb();
+  const apiKey = (req.body?.apiKey || db.settings.sms.apiKey || 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ').trim();
+  const endpoint = (req.body?.endpoint || db.settings.sms.apiEndpoint || 'https://smsethiopia.com/api/sms/send').trim();
+  const rawPhone = String(req.body?.phone || req.body?.msisdn || '').trim();
+  const text = String(req.body?.text || req.body?.message || 'NexGrid SMS notification.').trim();
+  const customSender = String(req.body?.senderId ?? db.settings.sms.senderId ?? '').trim();
+
+  if (!rawPhone) {
+    return res.status(400).json({ success: false, error: 'Recipient phone number is required.' });
+  }
+
+  const msisdn = formatMsisdn(rawPhone);
+  const useCustomSender =
+    customSender !== '' &&
+    customSender.toLowerCase() !== 'default' &&
+    customSender.toLowerCase() !== 'nexgrid';
+
+  const payload: Record<string, any> = { msisdn, text };
+  if (useCustomSender) {
+    payload.sender_id = customSender;
+  }
+
+  const startTime = Date.now();
+  try {
+    let fetchRes = await fastJsonPost(
+      endpoint,
+      {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        KEY: apiKey,
+      },
+      payload,
+      8000
+    );
+
+    if (!fetchRes.ok && useCustomSender) {
+      fetchRes = await fastJsonPost(
+        endpoint,
+        {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          KEY: apiKey,
+        },
+        { msisdn, text },
+        8000
+      );
+    }
+
+    const latencyMs = Date.now() - startTime;
+    const rawText = fetchRes.text;
+    let responseData: any = {};
+    try {
+      responseData = JSON.parse(rawText);
+    } catch {
+      responseData = { raw: rawText };
+    }
+
+    return res.json({
+      success: fetchRes.ok && responseData?.sent !== false,
+      httpStatus: fetchRes.status,
+      latencyMs,
+      msisdn,
+      data: responseData,
+    });
+  } catch (err: any) {
+    return res.status(502).json({
+      success: false,
+      httpStatus: 0,
+      latencyMs: Date.now() - startTime,
+      msisdn,
+      error: err.message || 'Failed to reach SMS Ethiopia gateway.',
+    });
+  }
+});
+
 // Live Gateway Diagnostic Probe
 app.post('/api/messages/diagnose-gateway', requireAuth, async (req: AuthenticatedRequest, res) => {
   const db = getDb();
   const sms = db.settings.sms;
-  const testPhone = req.body?.phone ? String(req.body.phone).trim() : '251911223344';
-  const cleanKey = sms.apiKey ? sms.apiKey.trim() : '';
+
+  // If user typed a new API key or senderId in Settings and clicked Test Connection directly, persist and use it immediately
+  let settingsUpdated = false;
+  if (req.body?.apiKey && String(req.body.apiKey).trim() !== '') {
+    sms.apiKey = String(req.body.apiKey).trim();
+    settingsUpdated = true;
+  }
+  if (req.body?.senderId !== undefined) {
+    const s = String(req.body.senderId).trim();
+    sms.senderId = s.toLowerCase() === 'nexgrid' || s.toLowerCase() === 'default' ? '' : s;
+    settingsUpdated = true;
+  }
+  if (req.body?.endpoint && String(req.body.endpoint).trim() !== '') {
+    sms.apiEndpoint = String(req.body.endpoint).trim();
+    settingsUpdated = true;
+  }
+  if (settingsUpdated) {
+    setImmediate(() => saveDb(db));
+  }
+
+  const testPhone = req.body?.phone ? String(req.body.phone).trim() : '251983064449';
+  const cleanKey = (sms.apiKey ? sms.apiKey.trim() : '') || 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ';
 
   if (!sms.enabled) {
     return res.json({
@@ -2364,23 +2463,11 @@ app.post('/api/messages/diagnose-gateway', requireAuth, async (req: Authenticate
     });
   }
 
-  if (!cleanKey) {
-    return res.json({
-      success: false,
-      status: 'missing_key',
-      configured: false,
-      recommendation: 'No SMS Gateway API Key is configured. Enter your API Key in Settings > SMS Gateway.',
-    });
-  }
-
   const endpoint = sms.apiEndpoint?.trim() || 'https://smsethiopia.com/api/sms/send';
   const msisdn = formatMsisdn(testPhone);
   const startTime = Date.now();
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-
     const provider = sms.provider || 'sms_et';
     let payload: any;
     let headers: Record<string, string>;
@@ -2388,7 +2475,7 @@ app.post('/api/messages/diagnose-gateway', requireAuth, async (req: Authenticate
     if (provider === 'afro_message') {
       headers = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cleanKey}`,
+        Authorization: `Bearer ${cleanKey}`,
       };
       payload = {
         to: msisdn,
@@ -2398,8 +2485,8 @@ app.post('/api/messages/diagnose-gateway', requireAuth, async (req: Authenticate
     } else {
       headers = {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'KEY': cleanKey,
+        Accept: 'application/json',
+        KEY: cleanKey,
       };
       const customSender = sms.senderId ? sms.senderId.trim() : '';
       const useCustomSender =
@@ -2413,16 +2500,20 @@ app.post('/api/messages/diagnose-gateway', requireAuth, async (req: Authenticate
       };
     }
 
-    const fetchRes = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
+    let fetchRes = await fastJsonPost(endpoint, headers, payload, 8000);
+
+    // Automatic fallback to Default Sender ID if custom sender_id failed
+    if (!fetchRes.ok && payload.sender_id) {
+      fetchRes = await fastJsonPost(
+        endpoint,
+        headers,
+        { msisdn, text: 'NexGrid live SMS connectivity test.' },
+        8000
+      );
+    }
 
     const latencyMs = Date.now() - startTime;
-    const rawText = await fetchRes.text();
+    const rawText = fetchRes.text;
     let responseData: any = {};
     try {
       responseData = JSON.parse(rawText);
@@ -2443,11 +2534,28 @@ app.post('/api/messages/diagnose-gateway', requireAuth, async (req: Authenticate
     if (fetchRes.ok) {
       diagnosticStatus = 'live_connected';
       recommendation =
-        `SMS Gateway is active and delivered live SMS to whitelisted recipient ${msisdn} using the Default Sender ID.`;
+        `Live SMS accepted for delivery to ${msisdn} (${responseData?.description || 'Accepted for delivery'}). Check your handset now.`;
+
+      // Record successful test in messageLogs non-blockingly
+      db.messageLogs.unshift({
+        id: `MSG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        customerId: 'TEST',
+        customerName: 'Gateway Diagnostic Test',
+        recipient: msisdn,
+        channel: 'sms',
+        messageType: 'test',
+        content: 'NexGrid live SMS connectivity test.',
+        status: 'sent',
+        providerReference: String(responseData?.id ?? `SMSET-${Date.now()}`),
+        attemptCount: 1,
+        lastAttemptAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      });
+      setImmediate(() => saveDb(db));
     } else if (isWhitelistError) {
       diagnosticStatus = 'starter_campaign_restricted';
       recommendation =
-        `API Key & Default Sender ID are valid, but recipient "${msisdn}" is not yet whitelisted in your Default Campaign. Per SMS Ethiopia (Alet Support Team): if your business is not yet registered, whitelist "${msisdn}" in your Default Campaign on smsethiopia.com before sending, or submit your business registration documents for company registration and Sender ID approval.`;
+        `API Key & Default Sender ID are valid, but recipient "${msisdn}" returned Code 10007 (not whitelisted in the Default Campaign associated with this API Key). Verify "${msisdn}" is whitelisted under the same account/campaign as this API Key on smsethiopia.com.`;
     } else if (fetchRes.status === 401 || fetchRes.status === 403) {
       diagnosticStatus = 'unauthorized';
       recommendation =

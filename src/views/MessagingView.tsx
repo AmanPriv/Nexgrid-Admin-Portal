@@ -47,7 +47,7 @@ export const MessagingView: React.FC = () => {
   // Compose SMS State (Send to Anyone)
   const [recipientType, setRecipientType] = useState<'customer' | 'custom'>('custom');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [customPhone, setCustomPhone] = useState('+251911223344');
+  const [customPhone, setCustomPhone] = useState('251983064449');
   const [composeMessage, setComposeMessage] = useState('NexGrid Digital Systems: Greetings! Your system account is active.');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [composeLoading, setComposeLoading] = useState(false);
@@ -90,9 +90,10 @@ export const MessagingView: React.FC = () => {
     setDiagLoading(true);
     setDiagResult(null);
     try {
-      const res = await api.diagnoseGateway(customPhone || '251911223344');
+      const res = await api.diagnoseGateway(customPhone || '251983064449');
       setDiagResult(res);
       setShowDiagPanel(true);
+      api.getMessageLogs().then((d) => setLogs(d.logs || [])).catch(() => {});
     } catch (err: any) {
       setDiagResult({
         success: false,
@@ -125,8 +126,8 @@ export const MessagingView: React.FC = () => {
   // Retry state
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [logsData, tmplData, settsData, custData] = await Promise.all([
         api.getMessageLogs(),
@@ -141,7 +142,7 @@ export const MessagingView: React.FC = () => {
     } catch (err) {
       console.error('Failed to load messaging data:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -198,7 +199,7 @@ export const MessagingView: React.FC = () => {
         messageId: res.messageId,
         error: res.error,
       });
-      loadData();
+      api.getMessageLogs().then((d) => setLogs(d.logs || [])).catch(() => {});
     } catch (err: any) {
       setComposeResult({
         status: 'failed',

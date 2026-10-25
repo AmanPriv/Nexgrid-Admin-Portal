@@ -64,14 +64,16 @@ export function setCustomApiUrl(url: string | null) {
 
 function isStaticHostWithoutCustomBackend(): boolean {
   if (typeof window === 'undefined') return false;
+  // Clear any legacy sticky sessionStorage flag that could trap the tab in static mode
+  try {
+    sessionStorage.removeItem('nexgrid_static_mode');
+  } catch {
+    // ignore
+  }
   const apiBase = getApiBase();
   if (apiBase) return false;
   const host = window.location.hostname;
-  return (
-    host.endsWith('.github.io') ||
-    window.location.protocol === 'file:' ||
-    sessionStorage.getItem('nexgrid_static_mode') === 'true'
-  );
+  return host.endsWith('.github.io') || window.location.protocol === 'file:';
 }
 
 async function runStaticFallback<T>(endpoint: string, options: RequestInit): Promise<T> {
@@ -119,13 +121,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       ...options,
       headers,
     });
-  } catch (_netErr: any) {
-    if (!apiBase) {
-      sessionStorage.setItem('nexgrid_static_mode', 'true');
-      return runStaticFallback<T>(endpoint, options);
-    }
+  } catch (netErr: any) {
     throw new Error(
-      `Cannot connect to NexGrid backend API at ${fullUrl}. Ensure your Node server is running.`
+      `Cannot connect to NexGrid backend API at ${fullUrl}. Ensure your server is running (${netErr.message}).`
     );
   }
 
@@ -143,11 +141,6 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   if (contentType.includes('application/json')) {
     data = await response.json().catch(() => ({}));
   } else {
-    // Non-JSON response (e.g., static server returning 404/405 HTML on GitHub Pages or Netlify/Vercel static)
-    if (!response.ok && !apiBase) {
-      sessionStorage.setItem('nexgrid_static_mode', 'true');
-      return runStaticFallback<T>(endpoint, options);
-    }
     if (!response.ok) {
       throw new Error(
         `Backend API returned HTTP ${response.status} (${response.statusText}).`
@@ -590,7 +583,10 @@ export const api = {
     });
   },
 
-  async diagnoseGateway(phone?: string): Promise<{
+  async diagnoseGateway(
+    phone?: string,
+    extra?: { apiKey?: string; senderId?: string; endpoint?: string }
+  ): Promise<{
     success: boolean;
     httpStatus: number;
     latencyMs: number;
@@ -603,7 +599,7 @@ export const api = {
   }> {
     return request('/api/messages/diagnose-gateway', {
       method: 'POST',
-      body: JSON.stringify({ phone }),
+      body: JSON.stringify({ phone, ...extra }),
     });
   },
 

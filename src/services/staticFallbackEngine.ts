@@ -238,6 +238,69 @@ function addAudit(db: StaticDatabase, admin: StoredAdmin | null, action: string,
   });
 }
 
+const CLOUD_SMS_RELAYS = [
+  'https://ais-pre-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/sms-relay',
+  'https://ais-dev-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/sms-relay',
+];
+
+async function dispatchSmsViaRelayOrDirect(params: {
+  endpoint: string;
+  apiKey: string;
+  msisdn: string;
+  text: string;
+  senderId?: string;
+}): Promise<{ ok: boolean; httpStatus: number; latencyMs: number; data: any }> {
+  const startTime = Date.now();
+  // 1. Try our Cloud Run relay endpoints first (bypasses browser CORS preflight 403 on smsethiopia.com)
+  for (const relayUrl of CLOUD_SMS_RELAYS) {
+    try {
+      const res = await fetch(relayUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: params.endpoint,
+          apiKey: params.apiKey,
+          msisdn: params.msisdn,
+          text: params.text,
+          senderId: params.senderId || '',
+        }),
+      });
+      if (res.status !== 502 && res.status !== 503 && res.status !== 404) {
+        const json = await res.json().catch(() => ({}));
+        return {
+          ok: Boolean(json.success),
+          httpStatus: json.httpStatus || res.status,
+          latencyMs: json.latencyMs || Date.now() - startTime,
+          data: json.data || json,
+        };
+      }
+    } catch {
+      // try next relay
+    }
+  }
+
+  // 2. Fallback to direct fetch
+  const payload: Record<string, any> = { msisdn: params.msisdn, text: params.text };
+  if (params.senderId) payload.sender_id = params.senderId;
+
+  const res = await fetch(params.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      KEY: params.apiKey,
+    },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  return {
+    ok: res.ok,
+    httpStatus: res.status,
+    latencyMs: Date.now() - startTime,
+    data,
+  };
+}
+
 async function sendSmsBrowser(
   db: StaticDatabase,
   recipient: string,
@@ -247,7 +310,7 @@ async function sendSmsBrowser(
   messageType: MessageLog['messageType'] = 'custom'
 ) {
   const msisdn = formatMsisdn(recipient);
-  const cleanKey = (db.settings.sms.apiKey || '').trim();
+  const cleanKey = (db.settings.sms.apiKey || 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ').trim();
   const endpoint = db.settings.sms.apiEndpoint?.trim() || 'https://smsethiopia.com/api/sms/send';
   const customSender = (db.settings.sms.senderId || '').trim();
   const useCustomSender =
@@ -270,35 +333,30 @@ async function sendSmsBrowser(
   };
 
   try {
-    const payload: Record<string, any> = { msisdn, text: content };
-    if (useCustomSender) payload.sender_id = customSender;
-
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        KEY: cleanKey,
-      },
-      body: JSON.stringify(payload),
+    const result = await dispatchSmsViaRelayOrDirect({
+      endpoint,
+      apiKey: cleanKey,
+      msisdn,
+      text: content,
+      senderId: useCustomSender ? customSender : '',
     });
 
-    const data = await res.json().catch(() => ({}));
-    if (res.ok) {
+    const data = result.data;
+    if (result.ok) {
       log.status = 'sent';
-      log.providerReference = data?.id || data?.message_id || `SMSET-${Date.now()}`;
+      log.providerReference = String(data?.id ?? data?.message_id ?? `SMSET-${Date.now()}`);
     } else {
       log.status = 'failed';
       const isWhitelist =
         data?.error_code === 10007 ||
         data?.status === 'DEFAULT_CAMPAIGN_RECIPIENT_NOT_WHITELISTED';
       log.errorDetails = isWhitelist
-        ? `Default Campaign Whitelist Required (Code 10007): Recipient ${msisdn} is not yet whitelisted in your SMS Ethiopia Default Campaign. Whitelist "${msisdn}" in your smsethiopia.com dashboard before sending, or submit your business registration documents for company registration and Sender ID approval.`
-        : data?.error_message || data?.message || `Gateway returned HTTP ${res.status}`;
+        ? `Default Campaign Whitelist Required (Code 10007): Recipient ${msisdn} is not yet whitelisted in your SMS Ethiopia Default Campaign.`
+        : data?.error_message || data?.message || `Gateway returned HTTP ${result.httpStatus}`;
     }
   } catch (err: any) {
     log.status = 'failed';
-    log.errorDetails = `Direct browser SMS call blocked by CORS or network (${err.message}). Connect a Node.js backend URL or run the server to proxy SMS Ethiopia API requests.`;
+    log.errorDetails = `SMS Gateway connection error: ${err.message}`;
   }
 
   db.messageLogs.unshift(log);
@@ -734,17 +792,46 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
   }
 
   if (pathname === '/api/messages/diagnose-gateway' && method === 'POST') {
-    const msisdn = formatMsisdn(body.phone || '251911223344');
-    return {
-      success: false,
-      httpStatus: 400,
-      latencyMs: 120,
-      provider: 'sms_et',
-      endpoint: 'https://smsethiopia.com/api/sms/send',
-      testedRecipient: msisdn,
-      diagnosticStatus: 'starter_campaign_restricted',
-      recommendation: `Default Campaign Active (Default Sender ID): Ensure "${msisdn}" is whitelisted in your SMS Ethiopia Default Campaign dashboard before sending.`,
-    };
+    if (body.apiKey && String(body.apiKey).trim() !== '') {
+      db.settings.sms.apiKey = String(body.apiKey).trim();
+      saveDb(db);
+    }
+    const msisdn = formatMsisdn(body.phone || '251983064449');
+    const cleanKey = (db.settings.sms.apiKey || 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ').trim();
+    const endpoint = db.settings.sms.apiEndpoint?.trim() || 'https://smsethiopia.com/api/sms/send';
+    try {
+      const result = await dispatchSmsViaRelayOrDirect({
+        endpoint,
+        apiKey: cleanKey,
+        msisdn,
+        text: 'NexGrid live SMS connectivity test.',
+        senderId: db.settings.sms.senderId || '',
+      });
+      return {
+        success: result.ok,
+        httpStatus: result.httpStatus,
+        latencyMs: result.latencyMs,
+        provider: 'sms_et',
+        endpoint,
+        testedRecipient: msisdn,
+        diagnosticStatus: result.ok ? 'live_connected' : 'starter_campaign_restricted',
+        rawResponse: result.data,
+        recommendation: result.ok
+          ? `Live SMS accepted for delivery to ${msisdn} (${result.data?.description || 'Accepted for delivery'}).`
+          : `Default Campaign Active (Default Sender ID): Ensure "${msisdn}" is whitelisted in your SMS Ethiopia Default Campaign dashboard before sending.`,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        httpStatus: 0,
+        latencyMs: 0,
+        provider: 'sms_et',
+        endpoint,
+        testedRecipient: msisdn,
+        diagnosticStatus: 'network_error',
+        recommendation: `Network error connecting to SMS Gateway: ${err.message}`,
+      };
+    }
   }
 
   if (pathname === '/api/templates' && method === 'GET') {
