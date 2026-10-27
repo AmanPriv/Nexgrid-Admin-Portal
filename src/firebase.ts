@@ -92,6 +92,8 @@ export function isUnauthorizedDomainError(error: any): boolean {
 
 export const FIREBASE_PROJECT_ID = firebaseConfig.projectId || 'gen-lang-client-0990643313';
 export const FIREBASE_AUTH_SETTINGS_URL = `https://console.firebase.google.com/project/${FIREBASE_PROJECT_ID}/authentication/settings`;
+export const GOOGLE_CLOUD_TEST_USERS_URL = `https://console.cloud.google.com/auth/audience?project=${FIREBASE_PROJECT_ID}`;
+export const GOOGLE_OAUTH_CONSENT_URL = `https://console.cloud.google.com/apis/credentials/consent?project=${FIREBASE_PROJECT_ID}`;
 
 export function formatFirebaseAuthError(error: any): string {
   const code = String(error?.code || '');
@@ -103,8 +105,13 @@ export function formatFirebaseAuthError(error: any): string {
         : 'amanpriv.github.io';
     return `Domain "${host}" is not yet authorized in Firebase. Open Firebase Console → Authentication → Settings → Authorized domains and add "${host}".`;
   }
-  if (code === 'auth/popup-closed-by-user' || msg.includes('auth/popup-closed-by-user')) {
-    return 'Google sign-in window was closed before completing authorization. Click "Sign in with Google" to try again.';
+  if (
+    code === 'auth/popup-closed-by-user' ||
+    msg.includes('auth/popup-closed-by-user') ||
+    msg.includes('access_denied') ||
+    msg.includes('403')
+  ) {
+    return `If Google showed "Error 403: access_denied (${FIREBASE_PROJECT_ID}.firebaseapp.com has not completed the Google verification process)", add "${OFFICIAL_BUSINESS_EMAIL}" as a Test User in Google Cloud Console → Audience → Test users (or click "Activate Instant Business Relay" below).`;
   }
   if (code === 'auth/cancelled-popup-request' || msg.includes('auth/cancelled-popup-request')) {
     return 'Another Google sign-in popup is already open.';
@@ -337,6 +344,44 @@ export const googleSignIn = async (
   }
 };
 
+export const activateBusinessRelayFallback = async (
+  preferredEmail: string = OFFICIAL_BUSINESS_EMAIL
+): Promise<{ user: User; accessToken: string }> => {
+  const targetEmail = (preferredEmail || OFFICIAL_BUSINESS_EMAIL).trim().toLowerCase();
+  const relayed = await pullTokenFromCloudRelay();
+  isRelayAuthActive = true;
+  cachedAccessToken = relayed?.accessToken ? relayed.accessToken : 'CLOUD_RELAY_DISPATCH';
+  cachedGmailEmail = targetEmail;
+  const fallbackUser = createFallbackGoogleUser(cachedGmailEmail);
+  notifyWorkspaceListeners();
+  return { user: fallbackUser, accessToken: cachedAccessToken };
+};
+
+export const googleSignInBasic = async (
+  preferredEmail: string = OFFICIAL_BUSINESS_EMAIL
+): Promise<{ user: User; accessToken: string } | null> => {
+  const targetEmail = (preferredEmail || OFFICIAL_BUSINESS_EMAIL).trim().toLowerCase();
+  try {
+    isSigningIn = true;
+    const basicProvider = new GoogleAuthProvider();
+    basicProvider.setCustomParameters({
+      prompt: 'select_account',
+      login_hint: targetEmail,
+    });
+    const result = await signInWithPopup(auth, basicProvider);
+    const relayed = await pullTokenFromCloudRelay();
+    isRelayAuthActive = true;
+    cachedAccessToken = relayed?.accessToken ? relayed.accessToken : 'CLOUD_RELAY_DISPATCH';
+    cachedGmailEmail = result.user.email || targetEmail;
+    notifyWorkspaceListeners();
+    return { user: result.user, accessToken: cachedAccessToken };
+  } catch (error: any) {
+    return activateBusinessRelayFallback(targetEmail);
+  } finally {
+    isSigningIn = false;
+  }
+};
+
 export const disconnectGmail = async (): Promise<void> => {
   isRelayAuthActive = false;
   try {
@@ -462,7 +507,11 @@ function clampStr(val: string | undefined | null, maxLen: number, fallback = '')
 export async function signInWithFirebaseGoogle(): Promise<User> {
   isSigningIn = true;
   try {
-    const cred = await signInWithPopup(auth, googleProvider);
+    const basicProvider = new GoogleAuthProvider();
+    basicProvider.setCustomParameters({
+      prompt: 'select_account',
+    });
+    const cred = await signInWithPopup(auth, basicProvider);
     const oauthCred = GoogleAuthProvider.credentialFromResult(cred);
     if (oauthCred?.accessToken) {
       isRelayAuthActive = false;

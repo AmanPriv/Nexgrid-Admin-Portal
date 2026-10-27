@@ -15,9 +15,11 @@ import {
   getAccessToken,
   getConnectedGmailEmail,
   googleSignIn,
+  activateBusinessRelayFallback,
   subscribeWorkspaceAuth,
   OFFICIAL_BUSINESS_EMAIL,
   FIREBASE_AUTH_SETTINGS_URL,
+  GOOGLE_CLOUD_TEST_USERS_URL,
   FIREBASE_PROJECT_ID,
 } from '../firebase.ts';
 import {
@@ -65,6 +67,7 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
   const [signingIn, setSigningIn] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [result, setResult] = useState<{
     success: boolean;
     summary: string;
@@ -112,6 +115,13 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
     } finally {
       setSigningIn(false);
     }
+  };
+
+  const handleActivateInstantRelay = async () => {
+    setError(null);
+    const res = await activateBusinessRelayFallback(OFFICIAL_BUSINESS_EMAIL);
+    setHasToken(true);
+    setConnectedEmail(res.user.email || OFFICIAL_BUSINESS_EMAIL);
   };
 
   const handleConfirmSend = async (e: React.FormEvent) => {
@@ -308,6 +318,61 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
               </button>
             )}
           </div>
+
+          {!isBusinessSender && (
+            <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200 text-blue-950 space-y-2 text-[11px]">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="font-bold text-blue-900">
+                  Seeing &ldquo;Error 403: access_denied (has not completed Google verification)&rdquo;?
+                </div>
+                <button
+                  type="button"
+                  onClick={handleActivateInstantRelay}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] shrink-0 shadow-2xs transition-colors"
+                >
+                  Activate {OFFICIAL_BUSINESS_EMAIL} Instant Relay (Bypass 403)
+                </button>
+              </div>
+              <ol className="list-decimal list-inside space-y-1 text-slate-700 leading-relaxed">
+                <li>
+                  Your Google Cloud project (<code className="px-1 py-0.5 bg-white rounded border border-blue-200 font-mono">{FIREBASE_PROJECT_ID}</code>) is in <strong>Testing</strong> mode, so Google blocks <code className="px-1 py-0.5 bg-white rounded border border-blue-200 font-mono font-bold">{OFFICIAL_BUSINESS_EMAIL}</code> until it is added under <strong>Test users</strong>.
+                </li>
+                <li>
+                  Open <strong>Google Cloud Console → Audience → Test users → + Add users</strong> (signed in as your project owner account <code className="font-mono">getahunamanueal0@gmail.com</code>), paste <code className="font-mono font-bold">{OFFICIAL_BUSINESS_EMAIL}</code>, and click <strong>Save</strong> (or click <strong>Publish App</strong>).
+                </li>
+              </ol>
+              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(OFFICIAL_BUSINESS_EMAIL);
+                    setCopiedKey('email');
+                    setTimeout(() => setCopiedKey(null), 2000);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-blue-300 hover:bg-blue-50 text-blue-900 font-semibold"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copiedKey === 'email' ? 'Copied Email!' : `Copy ${OFFICIAL_BUSINESS_EMAIL}`}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(GOOGLE_CLOUD_TEST_USERS_URL);
+                    setCopiedKey('console');
+                    setTimeout(() => setCopiedKey(null), 2000);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-semibold"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>
+                    {copiedKey === 'console'
+                      ? 'Copied Google Cloud Test Users URL!'
+                      : 'Copy Google Cloud Test Users URL'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-2.5">

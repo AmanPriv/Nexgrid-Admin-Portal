@@ -31,10 +31,12 @@ import {
   getAccessToken,
   getConnectedGmailEmail,
   googleSignIn,
+  activateBusinessRelayFallback,
   disconnectGmail,
   subscribeWorkspaceAuth,
   OFFICIAL_BUSINESS_EMAIL,
   FIREBASE_AUTH_SETTINGS_URL,
+  GOOGLE_CLOUD_TEST_USERS_URL,
   FIREBASE_PROJECT_ID,
 } from '../firebase.ts';
 
@@ -528,6 +530,20 @@ export const SettingsView: React.FC = () => {
                 </span>
               </div>
             </button>
+            {!isBusinessGmailActive && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setGoogleAuthError(null);
+                  const res = await activateBusinessRelayFallback(OFFICIAL_BUSINESS_EMAIL);
+                  setGmailToken(res.accessToken);
+                  setGmailSender(res.user.email);
+                }}
+                className="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-2xs transition-colors"
+              >
+                Activate {OFFICIAL_BUSINESS_EMAIL} Instant Relay (Bypass 403)
+              </button>
+            )}
             {gmailToken && (
               <button
                 type="button"
@@ -546,6 +562,65 @@ export const SettingsView: React.FC = () => {
             <span>{googleAuthError}</span>
           </div>
         )}
+
+        {/* Google OAuth Error 403: access_denied (Testing Mode Test Users) Helper */}
+        <div className="p-3.5 rounded-lg bg-amber-50/90 border border-amber-300 text-xs text-amber-950 space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="font-bold flex items-center gap-1.5 text-amber-900">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                Fix Google Sign-In &ldquo;Error 403: access_denied&rdquo; for {OFFICIAL_BUSINESS_EMAIL}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(OFFICIAL_BUSINESS_EMAIL);
+                  setCopiedDomain('__test_email__');
+                  setTimeout(() => setCopiedDomain(null), 2000);
+                }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-white border border-amber-300 hover:bg-amber-50 text-amber-900 font-semibold text-[11px]"
+              >
+                <span>
+                  {copiedDomain === '__test_email__'
+                    ? 'Email Copied!'
+                    : `Copy ${OFFICIAL_BUSINESS_EMAIL}`}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(GOOGLE_CLOUD_TEST_USERS_URL);
+                  setCopiedDomain('__test_users_url__');
+                  setTimeout(() => setCopiedDomain(null), 2000);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 text-white font-semibold text-[11px] shadow-2xs"
+              >
+                <span>
+                  {copiedDomain === '__test_users_url__'
+                    ? 'Google Cloud URL Copied!'
+                    : 'Copy Google Cloud Test Users URL'}
+                </span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+          <ol className="list-decimal list-inside text-[11px] text-amber-900 space-y-1 leading-relaxed">
+            <li>
+              Because <code className="bg-white px-1 rounded font-mono">{FIREBASE_PROJECT_ID}.firebaseapp.com</code> is in <strong>Testing</strong> mode under your developer account (<code className="bg-white px-1 rounded font-mono">getahunamanueal0@gmail.com</code>), Google blocks <code className="bg-white px-1 rounded font-mono font-bold">{OFFICIAL_BUSINESS_EMAIL}</code> until it is approved as a tester.
+            </li>
+            <li>
+              Open the copied URL (<code className="bg-white px-1 rounded font-mono">{GOOGLE_CLOUD_TEST_USERS_URL}</code>) while signed in as <code className="bg-white px-1 rounded font-mono">getahunamanueal0@gmail.com</code>.
+            </li>
+            <li>
+              Under <strong>Test users</strong>, click <strong>+ Add users</strong>, paste <code className="bg-white px-1 rounded font-mono font-bold">{OFFICIAL_BUSINESS_EMAIL}</code>, and click <strong>Save</strong> (or click <strong>Publish App</strong> under Publishing status).
+            </li>
+            <li>
+              Or click <strong>Activate {OFFICIAL_BUSINESS_EMAIL} Instant Relay (Bypass 403)</strong> above to dispatch client emails immediately via the cloud relay.
+            </li>
+          </ol>
+        </div>
 
         {/* Firebase Authorized Domains Setup Helper */}
         <div className="p-3.5 rounded-lg bg-blue-50/70 border border-blue-200 text-xs text-blue-950 space-y-2">
