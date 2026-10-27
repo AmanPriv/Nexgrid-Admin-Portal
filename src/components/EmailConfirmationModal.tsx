@@ -8,6 +8,8 @@ import {
   ShieldCheck,
   Users,
   RotateCw,
+  ExternalLink,
+  Copy,
 } from 'lucide-react';
 import {
   getAccessToken,
@@ -15,6 +17,8 @@ import {
   googleSignIn,
   subscribeWorkspaceAuth,
   OFFICIAL_BUSINESS_EMAIL,
+  FIREBASE_AUTH_SETTINGS_URL,
+  FIREBASE_PROJECT_ID,
 } from '../firebase.ts';
 import {
   sendGmailMessage,
@@ -306,9 +310,66 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
           </div>
 
           {error && (
-            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <span>{error}</span>
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-2.5">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span className="font-medium leading-relaxed">{error}</span>
+              </div>
+              {(error.includes('authorized in Firebase') || error.includes('unauthorized-domain')) && (
+                <div className="p-3 rounded-lg bg-white border border-rose-200 text-slate-800 space-y-2 text-[11px]">
+                  <div className="font-bold text-slate-900">
+                    How to Authorize Your Domain in Firebase ({FIREBASE_PROJECT_ID}):
+                  </div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-700">
+                    <li>
+                      Open <strong>Firebase Console → Authentication → Settings → Authorized domains</strong>.
+                    </li>
+                    <li>
+                      Click <strong>Add domain</strong> and paste{' '}
+                      <code className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-300 font-mono font-bold text-blue-700">
+                        {typeof window !== 'undefined' && window.location.hostname
+                          ? window.location.hostname
+                          : 'amanpriv.github.io'}
+                      </code>{' '}
+                      (and <code className="px-1 py-0.5 rounded bg-slate-100 font-mono">amanpriv.github.io</code> if deploying to GitHub Pages).
+                    </li>
+                    <li>
+                      Click <strong>Add</strong>, then return here and click <strong>Sign in with Google</strong>.
+                    </li>
+                  </ol>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const host =
+                          typeof window !== 'undefined' && window.location.hostname
+                            ? window.location.hostname
+                            : 'amanpriv.github.io';
+                        navigator.clipboard?.writeText(host);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-800 font-semibold"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>
+                        Copy Domain (
+                        {typeof window !== 'undefined' && window.location.hostname
+                          ? window.location.hostname
+                          : 'amanpriv.github.io'}
+                        )
+                      </span>
+                    </button>
+                    <a
+                      href={FIREBASE_AUTH_SETTINGS_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-semibold"
+                    >
+                      <span>Open Firebase Authorized Domains</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

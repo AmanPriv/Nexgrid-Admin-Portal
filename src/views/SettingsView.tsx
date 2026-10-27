@@ -34,6 +34,8 @@ import {
   disconnectGmail,
   subscribeWorkspaceAuth,
   OFFICIAL_BUSINESS_EMAIL,
+  FIREBASE_AUTH_SETTINGS_URL,
+  FIREBASE_PROJECT_ID,
 } from '../firebase.ts';
 
 export const SettingsView: React.FC = () => {
@@ -108,6 +110,8 @@ export const SettingsView: React.FC = () => {
   const [gmailToken, setGmailToken] = useState<string | null>(null);
   const [gmailSender, setGmailSender] = useState<string | null>(null);
   const [signingInGoogle, setSigningInGoogle] = useState(false);
+  const [googleAuthError, setGoogleAuthError] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState<string | null>(null);
   const [showTestEmailModal, setShowTestEmailModal] = useState(false);
   const [testEmailTarget, setTestEmailTarget] = useState('nexgriddigital@gmail.com');
 
@@ -123,14 +127,16 @@ export const SettingsView: React.FC = () => {
 
   const handleConnectGmail = async () => {
     setSigningInGoogle(true);
+    setGoogleAuthError(null);
     try {
       const res = await googleSignIn(OFFICIAL_BUSINESS_EMAIL);
       if (res) {
         setGmailToken(res.accessToken);
         setGmailSender(res.user.email);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Google Sign-In error:', err);
+      setGoogleAuthError(err?.message || 'Google sign-in failed.');
     } finally {
       setSigningInGoogle(false);
     }
@@ -531,6 +537,62 @@ export const SettingsView: React.FC = () => {
                 Disconnect
               </button>
             )}
+          </div>
+        </div>
+
+        {googleAuthError && (
+          <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-900 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <span>{googleAuthError}</span>
+          </div>
+        )}
+
+        {/* Firebase Authorized Domains Setup Helper */}
+        <div className="p-3.5 rounded-lg bg-blue-50/70 border border-blue-200 text-xs text-blue-950 space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="font-bold flex items-center gap-1.5 text-blue-900">
+              <Shield className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>Authorize Domain in Firebase Console ({FIREBASE_PROJECT_ID})</span>
+            </div>
+            <a
+              href={FIREBASE_AUTH_SETTINGS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-semibold text-[11px] self-start sm:self-center shadow-2xs"
+            >
+              <span>Open Firebase Authorized Domains</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+          <p className="text-[11px] text-blue-900 leading-relaxed">
+            To enable direct Google Sign-In (<code className="bg-white/80 px-1 rounded font-mono">auth/unauthorized-domain</code> fix) on GitHub Pages or your custom domain, open{' '}
+            <strong>Firebase Console → Authentication → Settings → Authorized domains → Add domain</strong> and add:
+          </p>
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            {Array.from(
+              new Set([
+                'amanpriv.github.io',
+                typeof window !== 'undefined' && window.location.hostname
+                  ? window.location.hostname
+                  : 'amanpriv.github.io',
+              ])
+            ).map((domain) => (
+              <button
+                key={domain}
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(domain);
+                  setCopiedDomain(domain);
+                  setTimeout(() => setCopiedDomain(null), 2000);
+                }}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-blue-300 hover:bg-blue-50 font-mono text-[11px] font-semibold text-blue-900"
+              >
+                <span>{domain}</span>
+                <span className="text-[10px] font-sans px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                  {copiedDomain === domain ? 'Copied!' : 'Copy'}
+                </span>
+              </button>
+            ))}
           </div>
         </div>
 

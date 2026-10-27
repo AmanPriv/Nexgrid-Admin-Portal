@@ -90,9 +90,19 @@ export function isUnauthorizedDomainError(error: any): boolean {
   );
 }
 
+export const FIREBASE_PROJECT_ID = firebaseConfig.projectId || 'gen-lang-client-0990643313';
+export const FIREBASE_AUTH_SETTINGS_URL = `https://console.firebase.google.com/project/${FIREBASE_PROJECT_ID}/authentication/settings`;
+
 export function formatFirebaseAuthError(error: any): string {
   const code = String(error?.code || '');
   const msg = String(error?.message || error || '');
+  if (isUnauthorizedDomainError(error)) {
+    const host =
+      typeof window !== 'undefined' && window.location.hostname
+        ? window.location.hostname
+        : 'amanpriv.github.io';
+    return `Domain "${host}" is not yet authorized in Firebase. Open Firebase Console → Authentication → Settings → Authorized domains and add "${host}".`;
+  }
   if (code === 'auth/popup-closed-by-user' || msg.includes('auth/popup-closed-by-user')) {
     return 'Google sign-in window was closed before completing authorization. Click "Sign in with Google" to try again.';
   }
@@ -309,18 +319,21 @@ export const googleSignIn = async (
     publishTokenToCloudRelay(cachedAccessToken, cachedGmailEmail).catch(() => {});
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
-    // Gracefully handle auth/unauthorized-domain on external static hosts (e.g. GitHub Pages *.github.io)
     if (isUnauthorizedDomainError(error)) {
       const relayed = await pullTokenFromCloudRelay();
-      isRelayAuthActive = true;
-      cachedAccessToken = relayed ? relayed.accessToken : 'CLOUD_RELAY_DISPATCH';
-      cachedGmailEmail = relayed ? relayed.email : targetEmail;
-      const fallbackUser = createFallbackGoogleUser(cachedGmailEmail);
-      notifyWorkspaceListeners();
-      return { user: fallbackUser, accessToken: cachedAccessToken };
+      if (relayed && relayed.accessToken) {
+        isRelayAuthActive = true;
+        cachedAccessToken = relayed.accessToken;
+        cachedGmailEmail = relayed.email || targetEmail;
+        const fallbackUser = createFallbackGoogleUser(cachedGmailEmail);
+        notifyWorkspaceListeners();
+        return { user: fallbackUser, accessToken: cachedAccessToken };
+      }
     }
     console.error('Google Workspace sign in error:', error);
-    throw new Error(formatFirebaseAuthError(error));
+    const formatted = new Error(formatFirebaseAuthError(error)) as Error & { code?: string };
+    formatted.code = error?.code || (isUnauthorizedDomainError(error) ? 'auth/unauthorized-domain' : undefined);
+    throw formatted;
   } finally {
     isSigningIn = false;
   }
