@@ -380,6 +380,45 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
                 <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 <span className="font-medium leading-relaxed">{error}</span>
               </div>
+              {(error.toLowerCase().includes('insufficient') ||
+                error.includes('Send email on your behalf')) && (
+                <div className="p-3 rounded-lg bg-white border border-rose-200 text-slate-800 space-y-2 text-[11px]">
+                  <div className="font-bold text-slate-900">
+                    How to Fix &ldquo;Request had insufficient authentication scopes&rdquo;:
+                  </div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-700 leading-relaxed">
+                    <li>
+                      Click <strong>Grant Gmail Send Permission</strong> below to re-open the Google consent popup for <code className="px-1 py-0.5 bg-slate-100 rounded font-mono font-bold">{OFFICIAL_BUSINESS_EMAIL}</code>.
+                    </li>
+                    <li>
+                      On the Google screen that says <em>&ldquo;Select what {FIREBASE_PROJECT_ID}.firebaseapp.com can access&rdquo;</em>, <strong>check the box [✓] next to &ldquo;Send email on your behalf&rdquo;</strong>, then click <strong>Continue</strong>.
+                    </li>
+                  </ol>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleGoogleAuthorize}
+                      disabled={signingIn}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-semibold shadow-2xs"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>
+                        {signingIn
+                          ? 'Opening Google Consent...'
+                          : 'Grant Gmail Send Permission (Check Box in Popup)'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleActivateInstantRelay}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-2xs"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Switch to Cloud Relay Mode</span>
+                    </button>
+                  </div>
+                </div>
+              )}
               {(error.includes('authorized in Firebase') || error.includes('unauthorized-domain')) && (
                 <div className="p-3 rounded-lg bg-white border border-rose-200 text-slate-800 space-y-2 text-[11px]">
                   <div className="font-bold text-slate-900">

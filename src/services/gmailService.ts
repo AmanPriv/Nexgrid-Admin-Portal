@@ -224,8 +224,14 @@ export async function sendGmailMessage(payload: EmailSendPayload): Promise<{
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      const errMessage =
+      const rawErr =
         data?.error?.message || `Gmail API returned HTTP ${response.status} (${response.statusText})`;
+      const isInsufficientScopes =
+        rawErr.toLowerCase().includes('insufficient authentication scopes') ||
+        data?.error?.status === 'PERMISSION_DENIED';
+      const errMessage = isInsufficientScopes
+        ? 'Request had insufficient authentication scopes: In the Google sign-in popup, make sure to CHECK THE BOX next to "Send email on your behalf" before clicking Continue.'
+        : rawErr;
       // Record failed attempt in logs
       await api
         .recordEmailLog({

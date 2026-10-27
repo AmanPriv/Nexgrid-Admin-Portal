@@ -50,8 +50,9 @@ export const SCOPES = ['https://www.googleapis.com/auth/gmail.send'];
 export const googleProvider = new GoogleAuthProvider();
 SCOPES.forEach((scope) => googleProvider.addScope(scope));
 googleProvider.setCustomParameters({
-  prompt: 'select_account',
+  prompt: 'consent select_account',
   login_hint: OFFICIAL_BUSINESS_EMAIL,
+  include_granted_scopes: 'true',
 });
 
 const GMAIL_RELAY_ENDPOINTS = [
@@ -59,7 +60,7 @@ const GMAIL_RELAY_ENDPOINTS = [
   'https://ais-dev-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/gmail-auth-relay',
   'https://ais-pre-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/gmail-auth-relay',
 ];
-const GMAIL_TOKEN_NTFY_TOPIC = 'nexgrid_gmail_oauth_relay_32da0e27_v1';
+const GMAIL_TOKEN_NTFY_TOPIC = 'nexgrid_gmail_oauth_relay_32da0e27_v2';
 
 // Flag to indicate if we are in the middle of a sign-in flow.
 let isSigningIn = false;
@@ -122,8 +123,25 @@ export function formatFirebaseAuthError(error: any): string {
   return msg || 'Authentication failed. Please try again.';
 }
 
+export async function verifyTokenHasGmailScope(accessToken: string): Promise<boolean> {
+  if (!accessToken || accessToken === 'CLOUD_RELAY_DISPATCH') return false;
+  try {
+    const res = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    const scopes = String(data?.scope || '');
+    return scopes.includes('gmail.send') || scopes.includes('mail.google.com') || scopes.includes('gmail.compose');
+  } catch {
+    return true;
+  }
+}
+
 async function publishTokenToCloudRelay(accessToken: string, email: string) {
   if (!accessToken || accessToken === 'CLOUD_RELAY_DISPATCH') return;
+  const hasScope = await verifyTokenHasGmailScope(accessToken);
+  if (!hasScope) return;
   const payload = {
     accessToken,
     email: (email || OFFICIAL_BUSINESS_EMAIL).trim().toLowerCase(),
@@ -173,10 +191,13 @@ export async function pullTokenFromCloudRelay(): Promise<{ accessToken: string; 
           data.accessToken !== 'CLOUD_RELAY_DISPATCH' &&
           Date.now() - Number(data.updatedAt || 0) < 50 * 60 * 1000
         ) {
-          return {
-            accessToken: data.accessToken,
-            email: data.email || OFFICIAL_BUSINESS_EMAIL,
-          };
+          const validScope = await verifyTokenHasGmailScope(data.accessToken);
+          if (validScope) {
+            return {
+              accessToken: data.accessToken,
+              email: data.email || OFFICIAL_BUSINESS_EMAIL,
+            };
+          }
         }
       }
     } catch {
@@ -199,10 +220,13 @@ export async function pullTokenFromCloudRelay(): Promise<{ accessToken: string; 
               data.accessToken !== 'CLOUD_RELAY_DISPATCH' &&
               Date.now() - Number(data.updatedAt || 0) < 50 * 60 * 1000
             ) {
-              return {
-                accessToken: data.accessToken,
-                email: data.email || OFFICIAL_BUSINESS_EMAIL,
-              };
+              const validScope = await verifyTokenHasGmailScope(data.accessToken);
+              if (validScope) {
+                return {
+                  accessToken: data.accessToken,
+                  email: data.email || OFFICIAL_BUSINESS_EMAIL,
+                };
+              }
             }
           }
         } catch {
@@ -299,7 +323,7 @@ export const initAuth = (
 };
 
 // Must be called from a button click or user interaction to authorize Google Workspace (Gmail)
-// Defaults login_hint to nexgriddigital@gmail.com so the Google account chooser pre-selects the business Gmail.
+// Defaults login_hint to nexgriddigital@gmail.com and prompt='consent select_account' so the user sees the "Send email on your behalf" checkbox.
 export const googleSignIn = async (
   preferredEmail: string = OFFICIAL_BUSINESS_EMAIL
 ): Promise<{ user: User; accessToken: string } | null> => {
@@ -309,14 +333,26 @@ export const googleSignIn = async (
     const provider = new GoogleAuthProvider();
     SCOPES.forEach((scope) => provider.addScope(scope));
     provider.setCustomParameters({
-      prompt: 'select_account',
+      prompt: 'consent select_account',
       login_hint: targetEmail,
+      include_granted_scopes: 'true',
     });
 
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Failed to obtain Google Workspace access token from Firebase Auth.');
+    }
+
+    const hasGmailPermission = await verifyTokenHasGmailScope(credential.accessToken);
+    if (!hasGmailPermission) {
+      cachedAccessToken = null;
+      notifyWorkspaceListeners();
+      const scopeErr: any = new Error(
+        `You signed in as ${result.user.email || targetEmail}, but the "Send email on your behalf" checkbox was not checked in the Google popup. Click "Grant Gmail Permission" and check the box next to "Send email on your behalf" before clicking Continue.`
+      );
+      scopeErr.code = 'INSUFFICIENT_GMAIL_SCOPES';
+      throw scopeErr;
     }
 
     isRelayAuthActive = false;
@@ -326,6 +362,9 @@ export const googleSignIn = async (
     publishTokenToCloudRelay(cachedAccessToken, cachedGmailEmail).catch(() => {});
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
+    if (error?.code === 'INSUFFICIENT_GMAIL_SCOPES') {
+      throw error;
+    }
     if (isUnauthorizedDomainError(error)) {
       const relayed = await pullTokenFromCloudRelay();
       isRelayAuthActive = true;
@@ -348,9 +387,8 @@ export const activateBusinessRelayFallback = async (
   preferredEmail: string = OFFICIAL_BUSINESS_EMAIL
 ): Promise<{ user: User; accessToken: string }> => {
   const targetEmail = (preferredEmail || OFFICIAL_BUSINESS_EMAIL).trim().toLowerCase();
-  const relayed = await pullTokenFromCloudRelay();
   isRelayAuthActive = true;
-  cachedAccessToken = relayed?.accessToken ? relayed.accessToken : 'CLOUD_RELAY_DISPATCH';
+  cachedAccessToken = 'CLOUD_RELAY_DISPATCH';
   cachedGmailEmail = targetEmail;
   const fallbackUser = createFallbackGoogleUser(cachedGmailEmail);
   notifyWorkspaceListeners();
@@ -513,7 +551,7 @@ export async function signInWithFirebaseGoogle(): Promise<User> {
     });
     const cred = await signInWithPopup(auth, basicProvider);
     const oauthCred = GoogleAuthProvider.credentialFromResult(cred);
-    if (oauthCred?.accessToken) {
+    if (oauthCred?.accessToken && (await verifyTokenHasGmailScope(oauthCred.accessToken))) {
       isRelayAuthActive = false;
       cachedAccessToken = oauthCred.accessToken;
       cachedGmailEmail = cred.user.email || OFFICIAL_BUSINESS_EMAIL;
