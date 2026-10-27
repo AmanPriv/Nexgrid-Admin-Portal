@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api.ts';
 import { Customer, Domain, Invoice, Quotation, Payment, MessageLog } from '../types.ts';
+import { EmailConfirmationModal } from '../components/EmailConfirmationModal.tsx';
+import { composeWelcomeEmail } from '../services/gmailService.ts';
 
 interface CustomersViewProps {
   initialOpenNewModal?: boolean;
@@ -64,6 +66,38 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Email Confirmation Modal State
+  const [emailModal, setEmailModal] = useState<{
+    isOpen: boolean;
+    customer: Customer | null;
+    subject: string;
+    body: string;
+    messageType: 'welcome' | 'custom';
+  }>({
+    isOpen: false,
+    customer: null,
+    subject: '',
+    body: '',
+    messageType: 'welcome',
+  });
+
+  const handleOpenEmailModal = (c: Customer, type: 'welcome' | 'custom' = 'welcome') => {
+    const welcome = composeWelcomeEmail(c);
+    setEmailModal({
+      isOpen: true,
+      customer: c,
+      subject:
+        type === 'welcome'
+          ? welcome.subject
+          : `Important Update from NexGrid Digital Systems — ${c.businessName}`,
+      body:
+        type === 'welcome'
+          ? welcome.body
+          : `Dear ${c.businessName || c.contactPerson},\n\nWe are reaching out from NexGrid Digital Systems regarding your account (${c.id}).\n\nPlease let us know if you need any assistance with your domains or services.\n\nBest regards,\nNexGrid Digital Systems`,
+      messageType: type,
+    });
+  };
 
   const loadCustomers = async () => {
     setLoading(true);
@@ -165,7 +199,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           notes: formNotes,
         });
       } else {
-        await api.createCustomer({
+        const createdRes = await api.createCustomer({
           businessName: formBusinessName,
           contactPerson: formContactPerson,
           phone: formPhone,
@@ -173,6 +207,9 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           billingAddress: formAddress,
           notes: formNotes,
         });
+        if (createdRes.customer && createdRes.customer.email && createdRes.customer.email.includes('@')) {
+          handleOpenEmailModal(createdRes.customer, 'welcome');
+        }
       }
       setShowModal(false);
       loadCustomers();
@@ -339,6 +376,16 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                     </td>
                     <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1.5">
+                        {c.email && c.email.includes('@') && (
+                          <button
+                            onClick={() => handleOpenEmailModal(c, 'welcome')}
+                            title={`Send Email to ${c.email}`}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 text-[11px] font-semibold"
+                          >
+                            <Mail className="w-3 h-3" />
+                            <span>Email</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => handleOpenEdit(c)}
                           className="px-2 py-1 rounded text-slate-600 hover:text-blue-600 hover:bg-slate-100 text-xs font-medium"
@@ -403,6 +450,15 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               </div>
 
               <div className="flex items-center gap-2">
+                {detailData.customer.email && detailData.customer.email.includes('@') && (
+                  <button
+                    onClick={() => handleOpenEmailModal(detailData.customer, 'welcome')}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white shadow-2xs"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Send Email</span>
+                  </button>
+                )}
                 <button
                   onClick={() => handleOpenEdit(detailData.customer)}
                   className="px-2.5 py-1 rounded-md text-xs font-medium border border-slate-200 hover:bg-white text-slate-700"
@@ -425,7 +481,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 { id: 'domains', label: `Domains (${detailData.domains.length})`, icon: Globe },
                 { id: 'invoices', label: `Invoices (${detailData.invoices.length})`, icon: FileText },
                 { id: 'payments', label: `Payments (${detailData.payments.length})`, icon: CreditCard },
-                { id: 'messages', label: `SMS Logs (${detailData.messages.length})`, icon: MessageSquare },
+                { id: 'messages', label: `SMS & Email Logs (${detailData.messages.length})`, icon: MessageSquare },
               ].map((t) => {
                 const Icon = t.icon;
                 const active = detailTab === t.id;
@@ -751,6 +807,23 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Email Confirmation Modal */}
+      <EmailConfirmationModal
+        isOpen={emailModal.isOpen}
+        onClose={() => setEmailModal((prev) => ({ ...prev, isOpen: false }))}
+        onSuccess={() => {
+          if (selectedCustomerId) openCustomerDetails(selectedCustomerId);
+        }}
+        mode="single"
+        initialRecipientEmail={emailModal.customer?.email || ''}
+        recipientName={emailModal.customer?.businessName || ''}
+        customerId={emailModal.customer?.id}
+        initialSubject={emailModal.subject}
+        initialBody={emailModal.body}
+        messageType={emailModal.messageType}
+        title={`Send Email to ${emailModal.customer?.businessName || 'Client'}`}
+      />
     </div>
   );
 };

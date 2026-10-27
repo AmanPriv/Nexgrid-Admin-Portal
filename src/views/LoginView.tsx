@@ -188,6 +188,22 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     }
   };
 
+  // Firebase Google Auth Login / Primary Admin Link
+  const handleFirebaseGoogleSignIn = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await api.loginWithFirebaseGoogle();
+      if (res.token && res.admin) {
+        onLoginSuccess(res.admin, res.timeoutMinutes || 60);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Google Sign-In failed. You can also sign in with your username and password.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // MFA Challenge Submit
   const handleMfaSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -638,6 +654,24 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     </>
                   )}
                 </button>
+
+                <div className="relative py-2 flex items-center justify-center">
+                  <div className="border-t border-slate-800 w-full" />
+                  <span className="bg-slate-900 px-3 text-[10px] uppercase tracking-wider text-slate-500 font-semibold shrink-0">
+                    Or Quick Setup via Firebase Auth
+                  </span>
+                  <div className="border-t border-slate-800 w-full" />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleFirebaseGoogleSignIn}
+                  disabled={loading}
+                  className="w-full py-2.5 px-4 bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 cursor-pointer"
+                >
+                  <Globe className="w-4 h-4 text-blue-400" />
+                  <span>Sign Up & Sync with Google (Firebase Cloud DB)</span>
+                </button>
               </form>
             ) : (
               /* STEP 2: OPTIONAL TOTP QR CODE & EMERGENCY RECOVERY CODES */
@@ -984,11 +1018,29 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                       </>
                     )}
                   </button>
+
+                  <div className="relative py-2 flex items-center justify-center">
+                    <div className="border-t border-slate-800 w-full" />
+                    <span className="bg-slate-900 px-3 text-[10px] uppercase tracking-wider text-slate-500 font-semibold shrink-0">
+                      Or Firebase Cloud Auth
+                    </span>
+                    <div className="border-t border-slate-800 w-full" />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleFirebaseGoogleSignIn}
+                    disabled={loading}
+                    className="w-full py-2.5 px-4 bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-2.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    <Globe className="w-4 h-4 text-blue-400" />
+                    <span>Continue with Google (Firebase Cloud Sync)</span>
+                  </button>
                 </form>
 
                 <div className="mt-5 pt-4 border-t border-slate-800/80 text-center">
                   <p className="text-[11px] text-slate-400">
-                    New user accounts can only be created by the Primary Administrator inside the portal.
+                    Synced across devices via Firebase Cloud Firestore. New accounts can only be created by the Primary Administrator.
                   </p>
                 </div>
               </>

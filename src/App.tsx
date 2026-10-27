@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { api, setUnauthorizedHandler } from './services/api.ts';
+import {
+  initRealtimeMultiDeviceSync,
+  pullCloudDatabaseState,
+  subscribeDataUpdates,
+} from './services/cloudSyncEngine.ts';
 import { AdminUser, Domain, Invoice } from './types.ts';
 import { Sidebar, NavTab } from './components/Sidebar.tsx';
 import { Header } from './components/Header.tsx';
@@ -36,14 +41,21 @@ export default function App() {
   // Global refresh counter
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Register unauthorized handler for 401 sessions
+  // Register unauthorized handler for 401 sessions & start real-time cloud DB sync
   useEffect(() => {
+    initRealtimeMultiDeviceSync();
+
+    const unsubCloud = subscribeDataUpdates(() => {
+      setRefreshKey((k) => k + 1);
+    });
+
     setUnauthorizedHandler(() => {
       setAdmin(null);
     });
 
     const verifySession = async () => {
       try {
+        await pullCloudDatabaseState().catch(() => {});
         const res = await api.getMe();
         setAdmin(res.admin);
         setTimeoutMinutes(res.timeoutMinutes || 60);
@@ -55,6 +67,9 @@ export default function App() {
     };
 
     verifySession();
+    return () => {
+      unsubCloud();
+    };
   }, []);
 
   // Fetch domain badge count

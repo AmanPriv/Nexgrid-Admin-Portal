@@ -13,9 +13,12 @@ import {
   DollarSign,
   X,
   ShieldAlert,
+  Mail,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
 import { Payment, Customer, Invoice } from '../types.ts';
+import { EmailConfirmationModal } from '../components/EmailConfirmationModal.tsx';
+import { composePaymentReceiptEmail } from '../services/gmailService.ts';
 
 interface PaymentsViewProps {
   initialOpenNewModal?: boolean;
@@ -54,6 +57,42 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
   const [reversingPayment, setReversingPayment] = useState<Payment | null>(null);
   const [reversalReason, setReversalReason] = useState('');
   const [reversingLoading, setReversingLoading] = useState(false);
+
+  // Email Confirmation Modal State
+  const [emailModalConfig, setEmailModalConfig] = useState<{
+    isOpen: boolean;
+    recipientEmail: string;
+    recipientName: string;
+    customerId: string;
+    subject: string;
+    body: string;
+    title: string;
+  }>({
+    isOpen: false,
+    recipientEmail: '',
+    recipientName: '',
+    customerId: '',
+    subject: '',
+    body: '',
+    title: 'Send Payment Confirmation Email',
+  });
+
+  const handleOpenEmailReceipt = (p: Payment) => {
+    const cust = customers.find((c) => c.id === p.customerId);
+    const email = (p.customerEmail || cust?.email || '').trim();
+    if (!email) return;
+    const linkedInv = p.invoiceId ? invoices.find((i) => i.id === p.invoiceId) : undefined;
+    const composed = composePaymentReceiptEmail(p, cust, linkedInv?.remainingBalance);
+    setEmailModalConfig({
+      isOpen: true,
+      recipientEmail: email,
+      recipientName: p.customerName || cust?.businessName || 'Client',
+      customerId: p.customerId,
+      subject: composed.subject,
+      body: composed.body,
+      title: `Send Payment Confirmation Receipt — ${p.id}`,
+    });
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -133,7 +172,7 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
     setFormError(null);
 
     try {
-      await api.recordPayment({
+      const res = await api.recordPayment({
         customerId: formCustomerId,
         invoiceId: formInvoiceId || undefined,
         amount: Number(formAmount),
@@ -145,7 +184,11 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
         status: formStatus,
       });
       setShowModal(false);
-      loadData();
+      await loadData();
+      const cust = customers.find((c) => c.id === formCustomerId);
+      if (formStatus === 'confirmed' && res?.payment && cust?.email?.trim()) {
+        handleOpenEmailReceipt(res.payment);
+      }
     } catch (err: any) {
       setFormError(err.message || 'Failed to record payment');
     } finally {
@@ -334,13 +377,22 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredPayments.map((p) => (
+                filteredPayments.map((p) => {
+                  const resolvedEmail = (
+                    p.customerEmail ||
+                    customers.find((c) => c.id === p.customerId)?.email ||
+                    ''
+                  ).trim();
+                  return (
                   <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3 px-4 font-mono font-bold text-blue-600">
                       {p.id}
                     </td>
                     <td className="py-3 px-4">
                       <div className="font-semibold text-slate-900">{p.customerName}</div>
+                      {resolvedEmail && (
+                        <div className="text-[10px] text-blue-600 truncate max-w-[160px]">{resolvedEmail}</div>
+                      )}
                       <div className="text-[10px] text-slate-400">Recorded by {p.recordedBy}</div>
                     </td>
                     <td className="py-3 px-4 font-mono font-bold text-emerald-700">
@@ -390,6 +442,16 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
+                        {p.status === 'confirmed' && resolvedEmail && (
+                          <button
+                            onClick={() => handleOpenEmailReceipt(p)}
+                            title={`Email Payment Receipt to ${resolvedEmail}`}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100 font-semibold text-[11px]"
+                          >
+                            <Mail className="w-3 h-3" />
+                            <span>Email Receipt</span>
+                          </button>
+                        )}
                         {p.status === 'pending' && (
                           <button
                             onClick={() => handleConfirmPending(p.id)}
@@ -413,7 +475,8 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -664,6 +727,21 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Email Confirmation Modal */}
+      <EmailConfirmationModal
+        isOpen={emailModalConfig.isOpen}
+        onClose={() => setEmailModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onSuccess={() => loadData()}
+        mode="single"
+        initialRecipientEmail={emailModalConfig.recipientEmail}
+        recipientName={emailModalConfig.recipientName}
+        customerId={emailModalConfig.customerId}
+        initialSubject={emailModalConfig.subject}
+        initialBody={emailModalConfig.body}
+        messageType="payment_confirmation"
+        title={emailModalConfig.title}
+      />
     </div>
   );
 };

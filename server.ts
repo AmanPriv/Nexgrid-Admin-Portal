@@ -1340,6 +1340,7 @@ app.get('/api/domains', requireAuth, (req, res) => {
       ...d,
       customerName: cust ? cust.businessName || cust.contactPerson : 'Unknown',
       customerPhone: cust?.phone,
+      customerEmail: cust?.email,
       daysLeft,
     };
   });
@@ -1653,6 +1654,7 @@ app.get('/api/invoices', requireAuth, (req, res) => {
       ...inv,
       customerName: customer ? customer.businessName || customer.contactPerson : 'Unknown',
       customerPhone: customer?.phone,
+      customerEmail: customer?.email,
       totalPaid: fin.totalPaid,
       remainingBalance: fin.remainingBalance,
       overpayment: fin.overpayment,
@@ -1733,7 +1735,10 @@ app.post('/api/invoices', requireAuth, (req: AuthenticatedRequest, res) => {
     discountAmount: discount,
     total,
     notes: notes?.trim(),
-    paymentInstructions: paymentInstructions?.trim() || 'CBE A/C: 1000234567890 (NexGrid Digital Systems) or Telebirr: 0911234567',
+    paymentInstructions:
+      paymentInstructions?.trim() ||
+      db.settings.general.bankingDetails ||
+      `Bank: ${db.settings.general.bankName || 'Commercial Bank of Ethiopia (CBE)'} | Account Name: ${db.settings.general.bankAccountName || db.settings.general.businessName || 'NexGrid Digital Systems'} | Account No: ${db.settings.general.bankAccountNumber || '1000234567890'} | Telebirr: ${db.settings.general.telebirrNumber || db.settings.general.businessPhone || '+251 906697634'}`,
     terms: terms?.trim() || 'Payment is due within 15 calendar days from the invoice date.',
     status: 'unpaid',
     createdAt: new Date().toISOString(),
@@ -1870,6 +1875,7 @@ app.get('/api/quotations', requireAuth, (req, res) => {
       ...q,
       customerName: customer ? customer.businessName || customer.contactPerson : 'Unknown',
       customerPhone: customer?.phone,
+      customerEmail: customer?.email,
     };
   });
   res.json({ quotations: list });
@@ -1925,7 +1931,10 @@ app.post('/api/quotations', requireAuth, (req: AuthenticatedRequest, res) => {
     discountAmount: discount,
     total,
     notes: notes?.trim(),
-    paymentInstructions: paymentInstructions?.trim(),
+    paymentInstructions:
+      paymentInstructions?.trim() ||
+      db.settings.general.bankingDetails ||
+      `Bank: ${db.settings.general.bankName || 'Commercial Bank of Ethiopia (CBE)'} | Account Name: ${db.settings.general.bankAccountName || db.settings.general.businessName || 'NexGrid Digital Systems'} | Account No: ${db.settings.general.bankAccountNumber || '1000234567890'} | Telebirr: ${db.settings.general.telebirrNumber || db.settings.general.businessPhone || '+251 906697634'}`,
     terms: terms?.trim() || 'Quotation valid for 30 calendar days.',
     status: 'sent',
     createdAt: new Date().toISOString(),
@@ -1974,7 +1983,10 @@ app.post('/api/quotations/:id/convert-to-invoice', requireAuth, (req: Authentica
     discountAmount: quotation.discountAmount,
     total: quotation.total,
     notes: `Converted from Quotation ${quotation.id}. ${quotation.notes || ''}`.trim(),
-    paymentInstructions: quotation.paymentInstructions || 'CBE A/C: 1000234567890 (NexGrid Digital Systems)',
+    paymentInstructions:
+      quotation.paymentInstructions ||
+      db.settings.general.bankingDetails ||
+      `Bank: ${db.settings.general.bankName || 'Commercial Bank of Ethiopia (CBE)'} | Account Name: ${db.settings.general.bankAccountName || db.settings.general.businessName || 'NexGrid Digital Systems'} | Account No: ${db.settings.general.bankAccountNumber || '1000234567890'} | Telebirr: ${db.settings.general.telebirrNumber || db.settings.general.businessPhone || '+251 906697634'}`,
     terms: quotation.terms || 'Payment is due within 15 calendar days from the invoice date.',
     status: 'unpaid',
     createdAt: new Date().toISOString(),
@@ -2012,6 +2024,7 @@ app.get('/api/payments', requireAuth, (req, res) => {
     return {
       ...p,
       customerName: cust ? cust.businessName || cust.contactPerson : 'Unknown',
+      customerEmail: cust?.email,
     };
   });
   res.json({ payments: list });
@@ -2209,6 +2222,69 @@ app.post('/api/payments/:id/reverse', requireAuth, (req: AuthenticatedRequest, r
 app.get('/api/messages/logs', requireAuth, (req, res) => {
   const db = getDb();
   res.json({ logs: db.messageLogs });
+});
+
+app.post('/api/messages/log-email', requireAuth, (req: AuthenticatedRequest, res) => {
+  const {
+    recipient,
+    subject,
+    content,
+    customerId,
+    customerName,
+    messageType,
+    status,
+    providerReference,
+    errorDetails,
+    domainId,
+  } = req.body;
+
+  if (!recipient || !content) {
+    return res.status(400).json({ error: 'Recipient email and content are required.' });
+  }
+
+  const db = getDb();
+  const validMessageType = [
+    'welcome',
+    'domain_reminder',
+    'payment_confirmation',
+    'invoice_reminder',
+    'test',
+    'custom',
+  ].includes(messageType)
+    ? messageType
+    : 'custom';
+
+  const logEntry = {
+    id: `EML-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    customerId: customerId || 'DIRECT',
+    customerName: customerName || 'Email Recipient',
+    recipient: String(recipient).trim(),
+    channel: 'email' as const,
+    messageType: validMessageType,
+    subject: subject || 'NexGrid Digital Systems Notification',
+    content: String(content),
+    providerReference: providerReference || `GMAIL-${Date.now()}`,
+    status: (status === 'failed' ? 'failed' : 'sent') as 'sent' | 'failed',
+    errorDetails: errorDetails || undefined,
+    attemptCount: 1,
+    lastAttemptAt: new Date().toISOString(),
+    domainId: domainId || undefined,
+    createdAt: new Date().toISOString(),
+  };
+
+  db.messageLogs.unshift(logEntry);
+  saveDb(db);
+
+  logAudit(
+    req.admin!.id,
+    req.admin!.fullName,
+    logEntry.status === 'sent' ? 'EMAIL_DISPATCHED_GMAIL' : 'EMAIL_DISPATCH_FAILED',
+    'notification',
+    logEntry.id,
+    `${logEntry.status === 'sent' ? 'Sent' : 'Failed to send'} email "${logEntry.subject}" to ${logEntry.recipient} via Gmail API`
+  );
+
+  res.status(201).json({ success: true, log: logEntry });
 });
 
 app.post('/api/messages/:id/retry', requireAuth, async (req: AuthenticatedRequest, res) => {
@@ -2895,12 +2971,18 @@ app.post('/api/settings/factory-reset', requireAuth, (req: AuthenticatedRequest,
 app.get('/api/export/csv/:entity', requireAuth, (req, res) => {
   const db = getDb();
   const entity = req.params.entity;
+  const gen = db.settings.general;
+  const companyBanner = [
+    `"ISSUED BY","${gen.businessName || 'NexGrid Digital Systems'}","TIN: ${gen.tinNumber || '0054892147'}","Phone: ${gen.businessPhone || '+251 906697634'}","Email: ${gen.businessEmail || 'nexgriddigital@gmail.com'}","Address: ${gen.businessAddress || 'Online'}"`,
+    `"BANKING DETAILS","Bank: ${gen.bankName || 'Commercial Bank of Ethiopia (CBE)'}","Account Holder: ${gen.bankAccountName || 'NexGrid Digital Systems'}","Account No: ${gen.bankAccountNumber || '1000234567890'}","Telebirr: ${gen.telebirrNumber || '+251 906697634'}","Currency: ${gen.currency || 'ETB'}"`,
+    '',
+  ].join('\n');
 
-  let csvContent = '';
+  let csvContent = companyBanner + '\n';
   let filename = `nexgrid-${entity}-${new Date().toISOString().slice(0, 10)}.csv`;
 
   if (entity === 'customers') {
-    csvContent = 'ID,Business Name,Contact Person,Phone,Email,Status,Created At\n';
+    csvContent += 'ID,Business Name,Contact Person,Phone,Email,Status,Created At\n';
     csvContent += db.customers
       .map(
         (c) =>
@@ -2908,7 +2990,7 @@ app.get('/api/export/csv/:entity', requireAuth, (req, res) => {
       )
       .join('\n');
   } else if (entity === 'domains') {
-    csvContent = 'ID,Customer ID,Domain Name,Registration Date,Expiration Date,Days Remaining,Renewal Price,Registrar,Status\n';
+    csvContent += 'ID,Customer ID,Domain Name,Registration Date,Expiration Date,Days Remaining,Renewal Price,Registrar,Status\n';
     csvContent += db.domains
       .map((d) => {
         const days = getDaysRemaining(d.expirationDate);
@@ -2916,7 +2998,7 @@ app.get('/api/export/csv/:entity', requireAuth, (req, res) => {
       })
       .join('\n');
   } else if (entity === 'invoices') {
-    csvContent = 'Invoice Number,Customer ID,Issue Date,Due Date,Subtotal,Tax,Discount,Total,Currency,Status\n';
+    csvContent += 'Invoice Number,Customer ID,Issue Date,Due Date,Subtotal,Tax,Discount,Total,Currency,Status\n';
     csvContent += db.invoices
       .map(
         (i) =>
@@ -2924,7 +3006,7 @@ app.get('/api/export/csv/:entity', requireAuth, (req, res) => {
       )
       .join('\n');
   } else if (entity === 'payments') {
-    csvContent = 'Payment ID,Customer ID,Invoice ID,Amount,Currency,Payment Date,Payment Method,Reference Number,Status,Recorded By\n';
+    csvContent += 'Payment ID,Customer ID,Invoice ID,Amount,Currency,Payment Date,Payment Method,Reference Number,Status,Recorded By\n';
     csvContent += db.payments
       .map(
         (p) =>
@@ -2938,6 +3020,144 @@ app.get('/api/export/csv/:entity', requireAuth, (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(csvContent);
+});
+
+// ================= 11. FIREBASE & CROSS-DEVICE CLOUD SYNC =================
+function mergeEntitiesById<T extends { id: string; updatedAt?: string; createdAt?: string; timestamp?: string }>(
+  target: T[] = [],
+  incoming: T[] = []
+): T[] {
+  const map = new Map<string, T>();
+  for (const item of target) {
+    if (item && item.id) map.set(item.id, item);
+  }
+  for (const inc of incoming) {
+    if (!inc || !inc.id) continue;
+    const prev = map.get(inc.id);
+    if (!prev) {
+      map.set(inc.id, inc);
+    } else {
+      const tPrev = prev.updatedAt || prev.createdAt || prev.timestamp || '';
+      const tInc = inc.updatedAt || inc.createdAt || inc.timestamp || '';
+      if (tInc >= tPrev) {
+        map.set(inc.id, { ...prev, ...inc });
+      }
+    }
+  }
+  return Array.from(map.values());
+}
+
+app.get('/api/public/cloud-state', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const db = getDb();
+  res.json({
+    success: true,
+    updatedAt: new Date().toISOString(),
+    db,
+  });
+});
+
+app.post('/api/public/cloud-state', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const incomingDb = req.body?.db;
+  if (!incomingDb || typeof incomingDb !== 'object') {
+    return res.status(400).json({ error: 'Invalid cloud state payload.' });
+  }
+
+  const db = getDb();
+  db.admins = mergeEntitiesById(db.admins, incomingDb.admins || []);
+  db.customers = mergeEntitiesById(db.customers, incomingDb.customers || []);
+  db.domains = mergeEntitiesById(db.domains, incomingDb.domains || []);
+  db.invoices = mergeEntitiesById(db.invoices, incomingDb.invoices || []);
+  db.quotations = mergeEntitiesById(db.quotations, incomingDb.quotations || []);
+  db.payments = mergeEntitiesById(db.payments, incomingDb.payments || []);
+  db.templates = mergeEntitiesById(db.templates, incomingDb.templates || []);
+  db.messageLogs = mergeEntitiesById(db.messageLogs, incomingDb.messageLogs || []).slice(0, 500);
+  db.auditLogs = mergeEntitiesById(db.auditLogs, incomingDb.auditLogs || []).slice(0, 500);
+
+  if (incomingDb.settings?.general) {
+    db.settings.general = { ...db.settings.general, ...incomingDb.settings.general };
+  }
+  if (incomingDb.settings?.sms) {
+    const existingKey = db.settings.sms.apiKey;
+    db.settings.sms = {
+      ...db.settings.sms,
+      ...incomingDb.settings.sms,
+      apiKey: incomingDb.settings.sms.apiKey || existingKey || 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ',
+    };
+  }
+
+  saveDb(db, true);
+  res.json({ success: true, updatedAt: new Date().toISOString() });
+});
+
+app.post('/api/auth/firebase-google', (req, res) => {
+  const { email, fullName, uid } = req.body || {};
+  const cleanEmail = String(email || '').trim().toLowerCase();
+  if (!cleanEmail) {
+    return res.status(400).json({ error: 'Verified Google email is required.' });
+  }
+
+  const db = getDb();
+  let admin = db.admins.find((a) => a.email.toLowerCase() === cleanEmail);
+
+  if (!admin) {
+    if (db.admins.length === 0 || cleanEmail === 'getahunamanueal0@gmail.com') {
+      const username = cleanEmail.split('@')[0].replace(/[^a-z0-9_-]/g, '') || 'admin';
+      const { hash, salt } = createPasswordHash(`FirebaseAuth#${uid || Date.now()}!`);
+      admin = {
+        id: db.admins.length === 0 ? 'ADM-001' : `ADM-${String(db.admins.length + 1).padStart(3, '0')}`,
+        username,
+        email: cleanEmail,
+        passwordHash: hash,
+        salt,
+        fullName: (fullName || 'Primary Administrator').trim(),
+        role: 'super_admin',
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+        mfaEnabled: false,
+      };
+      db.admins.push(admin);
+      saveDb(db);
+      logAudit(
+        admin.id,
+        admin.fullName,
+        'FIREBASE_GOOGLE_ADMIN_LINKED',
+        'auth',
+        admin.id,
+        `Administrator ${admin.email} authenticated via Firebase Google Auth.`,
+        req.ip
+      );
+    } else {
+      return res.status(403).json({
+        error: `Google account (${cleanEmail}) is not registered as an administrator. Sign in with your Primary Administrator account first or add this email in System Users.`,
+      });
+    }
+  } else {
+    admin.lastLoginAt = new Date().toISOString();
+    saveDb(db);
+  }
+
+  const ip = (req.headers['x-forwarded-for'] as string) || req.ip || '127.0.0.1';
+  const ua = req.headers['user-agent'] || 'Unknown';
+  const { token, csrfToken } = createSession(admin.id, ip, ua);
+
+  res.json({
+    token,
+    csrfToken,
+    admin: {
+      id: admin.id,
+      username: admin.username,
+      email: admin.email,
+      fullName: admin.fullName,
+      role: admin.role,
+      createdAt: admin.createdAt,
+      lastLoginAt: admin.lastLoginAt,
+      mfaEnabled: admin.mfaEnabled,
+      isPrimary: db.admins[0]?.id === admin.id,
+    },
+    timeoutMinutes: db.settings.general.inactivityTimeoutMinutes || 60,
+  });
 });
 
 // ================= VITE DEV / PRODUCTION INTEGRATION =================

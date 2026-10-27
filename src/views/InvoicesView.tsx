@@ -15,10 +15,22 @@ import {
   DollarSign,
   X,
   CreditCard,
+  Eye,
+  Building2,
+  QrCode,
+  Mail,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
-import { Invoice, Quotation, Customer, LineItem } from '../types.ts';
-import { generateInvoicePdf, generateQuotationPdf } from '../utils/pdfGenerator.ts';
+import { Invoice, Quotation, Customer, LineItem, AppSettings } from '../types.ts';
+import {
+  generateInvoicePdf,
+  generateQuotationPdf,
+  resolveCompanyProfile,
+  DEFAULT_COMPANY_PROFILE,
+} from '../utils/pdfGenerator.ts';
+import { PaymentQrCode } from '../components/PaymentQrCode.tsx';
+import { EmailConfirmationModal } from '../components/EmailConfirmationModal.tsx';
+import { composeInvoiceEmail, composeQuotationEmail } from '../services/gmailService.ts';
 
 interface InvoicesViewProps {
   initialOpenNewModal?: boolean;
@@ -35,6 +47,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [companySettings, setCompanySettings] = useState<AppSettings['general']>(DEFAULT_COMPANY_PROFILE as any);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
@@ -48,7 +61,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   ]);
   const [invTaxRate, setInvTaxRate] = useState(15);
   const [invDiscount, setInvDiscount] = useState(0);
-  const [invNotes, setInvNotes] = useState('Payment instructions: CBE A/C: 1000234567890 or Telebirr: 0911234567.');
+  const [invNotes, setInvNotes] = useState(DEFAULT_COMPANY_PROFILE.bankingDetails);
   const [savingInvoice, setSavingInvoice] = useState(false);
 
   // Create Quotation Modal
@@ -61,6 +74,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   ]);
   const [quoTaxRate, setQuoTaxRate] = useState(15);
   const [quoDiscount, setQuoDiscount] = useState(0);
+  const [quoPaymentInstructions, setQuoPaymentInstructions] = useState(DEFAULT_COMPANY_PROFILE.bankingDetails);
   const [quoNotes, setQuoNotes] = useState('Quotation valid for 30 calendar days.');
   const [savingQuotation, setSavingQuotation] = useState(false);
 
@@ -71,17 +85,77 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     customer?: Customer;
   } | null>(null);
 
+  // Email Confirmation Modal State
+  const [emailModalConfig, setEmailModalConfig] = useState<{
+    isOpen: boolean;
+    recipientEmail: string;
+    recipientName: string;
+    customerId: string;
+    subject: string;
+    body: string;
+    messageType: 'invoice_reminder' | 'custom';
+    title: string;
+  }>({
+    isOpen: false,
+    recipientEmail: '',
+    recipientName: '',
+    customerId: '',
+    subject: '',
+    body: '',
+    messageType: 'invoice_reminder',
+    title: 'Send Document via Gmail',
+  });
+
+  const handleOpenEmailInvoice = (inv: Invoice) => {
+    const cust = customers.find((c) => c.id === inv.customerId);
+    const email = (inv.customerEmail || cust?.email || '').trim();
+    if (!email) return;
+    const composed = composeInvoiceEmail(inv, cust);
+    setEmailModalConfig({
+      isOpen: true,
+      recipientEmail: email,
+      recipientName: inv.customerName || cust?.businessName || 'Client',
+      customerId: inv.customerId,
+      subject: composed.subject,
+      body: composed.body,
+      messageType: 'invoice_reminder',
+      title: `Send Invoice Email — ${inv.id}`,
+    });
+  };
+
+  const handleOpenEmailQuotation = (q: Quotation) => {
+    const cust = customers.find((c) => c.id === q.customerId);
+    const email = (q.customerEmail || cust?.email || '').trim();
+    if (!email) return;
+    const composed = composeQuotationEmail(q, cust);
+    setEmailModalConfig({
+      isOpen: true,
+      recipientEmail: email,
+      recipientName: q.customerName || cust?.businessName || 'Client',
+      customerId: q.customerId,
+      subject: composed.subject,
+      body: composed.body,
+      messageType: 'custom',
+      title: `Send Service Quotation Email — ${q.id}`,
+    });
+  };
+
   const loadData = async () => {
     setLoading(true);
     try {
-      const [invData, quoData, custData] = await Promise.all([
+      const [invData, quoData, custData, settingsData] = await Promise.all([
         api.getInvoices(),
         api.getQuotations(),
         api.getCustomers('', 'active'),
+        api.getSettings().catch(() => null),
       ]);
       setInvoices(invData.invoices);
       setQuotations(quoData.quotations);
       setCustomers(custData.customers);
+      if (settingsData?.settings?.general) {
+        const resolved = resolveCompanyProfile(settingsData.settings.general);
+        setCompanySettings({ ...settingsData.settings.general, ...resolved });
+      }
     } catch (err) {
       console.error('Failed to load documents:', err);
     } finally {
@@ -101,6 +175,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   }, [initialOpenNewModal]);
 
   const handleOpenCreateInvoice = () => {
+    const profile = resolveCompanyProfile(companySettings);
     setInvCustomerId(customers[0]?.id || '');
     setInvIssueDate(new Date().toISOString().split('T')[0]);
     const due = new Date();
@@ -111,11 +186,12 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     ]);
     setInvTaxRate(15);
     setInvDiscount(0);
-    setInvNotes('Commercial Bank of Ethiopia (CBE) A/C: 1000234567890 | Telebirr: 0911234567');
+    setInvNotes(profile.bankingDetails);
     setShowInvoiceModal(true);
   };
 
   const handleOpenCreateQuotation = () => {
+    const profile = resolveCompanyProfile(companySettings);
     setQuoCustomerId(customers[0]?.id || '');
     setQuoIssueDate(new Date().toISOString().split('T')[0]);
     const valid = new Date();
@@ -126,6 +202,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     ]);
     setQuoTaxRate(15);
     setQuoDiscount(0);
+    setQuoPaymentInstructions(profile.bankingDetails);
     setQuoNotes('Quotation valid for 30 calendar days.');
     setShowQuotationModal(true);
   };
@@ -166,7 +243,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     setSavingInvoice(true);
 
     try {
-      await api.createInvoice({
+      const res = await api.createInvoice({
         customerId: invCustomerId,
         issueDate: invIssueDate,
         dueDate: invDueDate,
@@ -176,9 +253,13 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         paymentInstructions: invNotes,
       });
       setShowInvoiceModal(false);
-      loadData();
+      await loadData();
+      const cust = customers.find((c) => c.id === invCustomerId);
+      if (res?.invoice && cust?.email?.trim()) {
+        handleOpenEmailInvoice(res.invoice);
+      }
     } catch (err: any) {
-      alert(`Failed to save invoice: ${err.message}`);
+      console.error('Failed to save invoice:', err);
     } finally {
       setSavingInvoice(false);
     }
@@ -190,19 +271,24 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     setSavingQuotation(true);
 
     try {
-      await api.createQuotation({
+      const res = await api.createQuotation({
         customerId: quoCustomerId,
         issueDate: quoIssueDate,
         validUntil: quoValidUntil,
         items: quoItems,
         taxRate: Number(quoTaxRate),
         discountAmount: Number(quoDiscount),
+        paymentInstructions: quoPaymentInstructions,
         terms: quoNotes,
       });
       setShowQuotationModal(false);
-      loadData();
+      await loadData();
+      const cust = customers.find((c) => c.id === quoCustomerId);
+      if (res?.quotation && cust?.email?.trim()) {
+        handleOpenEmailQuotation(res.quotation);
+      }
     } catch (err: any) {
-      alert(`Failed to save quotation: ${err.message}`);
+      console.error('Failed to save quotation:', err);
     } finally {
       setSavingQuotation(false);
     }
@@ -234,14 +320,14 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     }
   };
 
-  // Download PDF
+  // Download PDF with full Company Profile & Banking Details
   const handleDownloadPdf = (doc: { type: 'invoice' | 'quotation'; data: Invoice | Quotation }) => {
     const cust = customers.find((c) => c.id === doc.data.customerId);
     if (doc.type === 'invoice') {
-      const pdf = generateInvoicePdf(doc.data as Invoice, cust);
+      const pdf = generateInvoicePdf(doc.data as Invoice, cust, companySettings);
       pdf.save(`${doc.data.id}-${cust?.businessName || 'customer'}.pdf`);
     } else {
-      const pdf = generateQuotationPdf(doc.data as Quotation, cust);
+      const pdf = generateQuotationPdf(doc.data as Quotation, cust, companySettings);
       pdf.save(`${doc.data.id}-${cust?.businessName || 'customer'}.pdf`);
     }
   };
@@ -362,13 +448,22 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredInvoices.map((inv) => (
+                  filteredInvoices.map((inv) => {
+                    const resolvedEmail = (
+                      inv.customerEmail ||
+                      customers.find((c) => c.id === inv.customerId)?.email ||
+                      ''
+                    ).trim();
+                    return (
                     <tr key={inv.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3 px-4 font-mono font-bold text-blue-600">
                         {inv.id}
                       </td>
                       <td className="py-3 px-4">
                         <div className="font-semibold text-slate-900">{inv.customerName}</div>
+                        {resolvedEmail && (
+                          <div className="text-[10px] text-blue-600 truncate max-w-[160px]">{resolvedEmail}</div>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-slate-600 font-mono">{inv.issueDate}</td>
                       <td className="py-3 px-4 text-slate-600 font-mono">{inv.dueDate}</td>
@@ -406,9 +501,33 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {resolvedEmail && (
+                            <button
+                              onClick={() => handleOpenEmailInvoice(inv)}
+                              title={`Email Invoice to ${resolvedEmail}`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100 font-semibold text-[11px]"
+                            >
+                              <Mail className="w-3 h-3" />
+                              <span>Email</span>
+                            </button>
+                          )}
+                          <button
+                            onClick={() =>
+                              setPreviewDoc({
+                                type: 'invoice',
+                                data: inv,
+                                customer: customers.find((c) => c.id === inv.customerId),
+                              })
+                            }
+                            title="Scan to Pay QR & Preview Official Invoice"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100 font-semibold text-[11px]"
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                            <span>QR / View</span>
+                          </button>
                           <button
                             onClick={() => handleDownloadPdf({ type: 'invoice', data: inv })}
-                            title="Download Official PDF"
+                            title="Download Official PDF (with Payment QR)"
                             className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-slate-100"
                           >
                             <Download className="w-3.5 h-3.5" />
@@ -434,7 +553,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -471,13 +591,22 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredQuotations.map((q) => (
+                  filteredQuotations.map((q) => {
+                    const resolvedEmail = (
+                      q.customerEmail ||
+                      customers.find((c) => c.id === q.customerId)?.email ||
+                      ''
+                    ).trim();
+                    return (
                     <tr key={q.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3 px-4 font-mono font-bold text-purple-600">
                         {q.id}
                       </td>
-                      <td className="py-3 px-4 font-semibold text-slate-900">
-                        {q.customerName}
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-slate-900">{q.customerName}</div>
+                        {resolvedEmail && (
+                          <div className="text-[10px] text-blue-600 truncate max-w-[160px]">{resolvedEmail}</div>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-600">{q.issueDate}</td>
                       <td className="py-3 px-4 font-mono text-slate-600">{q.validUntil}</td>
@@ -507,9 +636,33 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {resolvedEmail && (
+                            <button
+                              onClick={() => handleOpenEmailQuotation(q)}
+                              title={`Email Quotation to ${resolvedEmail}`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100 font-semibold text-[11px]"
+                            >
+                              <Mail className="w-3 h-3" />
+                              <span>Email</span>
+                            </button>
+                          )}
+                          <button
+                            onClick={() =>
+                              setPreviewDoc({
+                                type: 'quotation',
+                                data: q,
+                                customer: customers.find((c) => c.id === q.customerId),
+                              })
+                            }
+                            title="Scan to Pay QR & Preview Official Quotation"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100 font-semibold text-[11px]"
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                            <span>QR / View</span>
+                          </button>
                           <button
                             onClick={() => handleDownloadPdf({ type: 'quotation', data: q })}
-                            title="Download PDF Quotation"
+                            title="Download PDF Quotation (with Payment QR)"
                             className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-slate-100"
                           >
                             <Download className="w-3.5 h-3.5" />
@@ -527,7 +680,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         </div>
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -711,6 +865,23 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         <span className="font-mono text-blue-600">{total.toLocaleString()} ETB</span>
                       </div>
                     </div>
+
+                    <div className="sm:col-span-2">
+                      <PaymentQrCode
+                        settings={companySettings}
+                        context={{
+                          documentType: 'INVOICE',
+                          customerName: customers.find((c) => c.id === invCustomerId)?.businessName,
+                          amount: total,
+                          currency: companySettings?.currency || 'ETB',
+                          dueOrValidDate: invDueDate,
+                          customInstructions: invNotes,
+                        }}
+                        size={76}
+                        compact
+                        showActions={false}
+                      />
+                    </div>
                   </div>
                 );
               })()}
@@ -850,6 +1021,47 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">
+                    Banking & Settlement Details (Included on Quotation)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={quoPaymentInstructions}
+                    onChange={(e) => setQuoPaymentInstructions(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">
+                    Quotation Terms & Validity Note
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={quoNotes}
+                    onChange={(e) => setQuoNotes(e.target.value)}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <PaymentQrCode
+                    settings={companySettings}
+                    context={{
+                      documentType: 'QUOTATION',
+                      customerName: customers.find((c) => c.id === quoCustomerId)?.businessName,
+                      amount: quoItems.reduce((s, it) => s + (it.total || 0), 0) * (1 + (Number(quoTaxRate) || 0) / 100),
+                      currency: companySettings?.currency || 'ETB',
+                      dueOrValidDate: quoValidUntil,
+                      customInstructions: quoPaymentInstructions,
+                    }}
+                    size={76}
+                    compact
+                    showActions={false}
+                  />
+                </div>
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
                 <button
                   type="button"
@@ -870,6 +1082,240 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Official Document Preview Modal (Applies Company Profile & Banking Details) */}
+      {previewDoc && (() => {
+        const company = resolveCompanyProfile(companySettings);
+        const docData = previewDoc.data;
+        const cust = previewDoc.customer;
+        const isInvoice = previewDoc.type === 'invoice';
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs">
+            <div className="bg-white rounded-xl max-w-3xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden text-slate-900">
+              <div className="flex items-center justify-between px-6 py-3.5 bg-slate-900 text-white">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-blue-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    Official {isInvoice ? 'Tax Invoice' : 'Service Quotation'} — {docData.id}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {(cust?.email || docData.customerEmail) && (
+                    <button
+                      onClick={() => {
+                        if (isInvoice) {
+                          handleOpenEmailInvoice(docData as Invoice);
+                        } else {
+                          handleOpenEmailQuotation(docData as Quotation);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Email to Client</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDownloadPdf({ type: previewDoc.type, data: docData })}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download PDF</span>
+                  </button>
+                  <button
+                    onClick={() => setPreviewDoc(null)}
+                    className="p-1 text-slate-400 hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-5 text-xs">
+                {/* Company Profile Header */}
+                <div className="flex flex-col sm:flex-row justify-between gap-4 pb-4 border-b border-slate-200">
+                  <div className="space-y-1">
+                    <div className="text-base font-extrabold text-slate-900 tracking-tight">
+                      {company.businessName}
+                    </div>
+                    <div className="text-slate-600">
+                      Office / Billing Address: <strong className="text-slate-800">{company.businessAddress}</strong>
+                    </div>
+                    <div className="text-slate-600">
+                      Support Phone: <strong className="font-mono text-slate-800">{company.businessPhone}</strong>
+                    </div>
+                    <div className="text-slate-600">
+                      Official Email: <strong className="text-slate-800">{company.businessEmail}</strong>
+                    </div>
+                    <div className="text-slate-600">
+                      TIN: <strong className="font-mono text-slate-900">{company.tinNumber}</strong> • Currency:{' '}
+                      <strong className="font-mono text-slate-900">{company.currency}</strong>
+                    </div>
+                  </div>
+
+                  <div className="sm:text-right space-y-1">
+                    <div className="text-sm font-bold text-blue-600 uppercase">
+                      {isInvoice ? 'TAX INVOICE' : 'SERVICE QUOTATION'}
+                    </div>
+                    <div className="font-mono font-bold text-slate-900">{docData.id}</div>
+                    <div className="text-slate-600">Issue Date: {docData.issueDate}</div>
+                    {isInvoice ? (
+                      <div className="text-slate-600">Due Date: {(docData as Invoice).dueDate}</div>
+                    ) : (
+                      <div className="text-slate-600">Valid Until: {(docData as Quotation).validUntil}</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Client Info */}
+                <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 space-y-1">
+                  <div className="text-[10px] font-bold uppercase text-slate-500">
+                    {isInvoice ? 'Bill To (Customer)' : 'Prepared For (Client)'}
+                  </div>
+                  <div className="text-sm font-bold text-slate-900">
+                    {cust?.businessName || docData.customerName || 'Valued Customer'}
+                  </div>
+                  <div className="text-slate-600">
+                    {cust?.contactPerson && <span>Attn: {cust.contactPerson} • </span>}
+                    {cust?.phone && <span>Tel: {cust.phone} • </span>}
+                    {cust?.email && <span>Email: {cust.email}</span>}
+                  </div>
+                </div>
+
+                {/* Line Items */}
+                <table className="w-full text-left border border-slate-200 rounded-lg overflow-hidden">
+                  <thead className="bg-slate-900 text-white text-[11px]">
+                    <tr>
+                      <th className="py-2 px-3">#</th>
+                      <th className="py-2 px-3">Description / Service</th>
+                      <th className="py-2 px-3 text-right">Qty</th>
+                      <th className="py-2 px-3 text-right">Unit Price</th>
+                      <th className="py-2 px-3 text-right">Total ({docData.currency})</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {docData.items.map((it, idx) => (
+                      <tr key={it.id || idx}>
+                        <td className="py-2 px-3 text-slate-500">{idx + 1}</td>
+                        <td className="py-2 px-3 font-medium text-slate-900">{it.description}</td>
+                        <td className="py-2 px-3 text-right font-mono">{it.quantity}</td>
+                        <td className="py-2 px-3 text-right font-mono">{it.unitPrice.toLocaleString()}</td>
+                        <td className="py-2 px-3 text-right font-mono font-bold">{it.total.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Summary, Banking Details & Scan-to-Pay QR Code */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-stretch">
+                  <div className="md:col-span-5 p-3.5 rounded-xl bg-blue-50/60 border border-blue-200 flex flex-col justify-between space-y-2">
+                    <div className="space-y-1.5">
+                      <div className="font-bold text-slate-900 uppercase text-[11px] flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Banking & Payment Settlement Details</span>
+                      </div>
+                      <div className="text-slate-700 space-y-1 text-[11px]">
+                        <div>
+                          Bank: <strong>{company.bankName}</strong>
+                        </div>
+                        <div>
+                          Account Holder: <strong>{company.bankAccountName}</strong>
+                        </div>
+                        <div>
+                          Account Number:{' '}
+                          <strong className="font-mono text-blue-700">{company.bankAccountNumber}</strong>
+                        </div>
+                        <div>
+                          Telebirr / Mobile Money:{' '}
+                          <strong className="font-mono">{company.telebirrNumber}</strong>
+                        </div>
+                        {company.secondaryBankDetails && (
+                          <div className="text-slate-600 pt-0.5">{company.secondaryBankDetails}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-blue-800 bg-white/80 px-2.5 py-1.5 rounded border border-blue-100">
+                      Scan the QR code with your mobile banking or camera app to view full payment details for{' '}
+                      <strong>{docData.id}</strong>.
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-3 flex items-center justify-center">
+                    <PaymentQrCode
+                      settings={companySettings}
+                      context={{
+                        documentType: isInvoice ? 'INVOICE' : 'QUOTATION',
+                        documentId: docData.id,
+                        customerName: cust?.businessName || docData.customerName,
+                        amount:
+                          isInvoice &&
+                          (docData as Invoice).remainingBalance !== undefined &&
+                          (docData as Invoice).remainingBalance! > 0
+                            ? (docData as Invoice).remainingBalance
+                            : docData.total,
+                        currency: docData.currency || company.currency,
+                        dueOrValidDate: isInvoice
+                          ? (docData as Invoice).dueDate
+                          : (docData as Quotation).validUntil,
+                        customInstructions: docData.paymentInstructions,
+                      }}
+                      size={112}
+                    />
+                  </div>
+
+                  <div className="md:col-span-4 p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between space-y-2">
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-slate-600">
+                        <span>Subtotal:</span>
+                        <span className="font-mono">
+                          {docData.subtotal.toLocaleString()} {docData.currency}
+                        </span>
+                      </div>
+                      {docData.discountAmount > 0 && (
+                        <div className="flex justify-between text-slate-600">
+                          <span>Discount:</span>
+                          <span className="font-mono">
+                            -{docData.discountAmount.toLocaleString()} {docData.currency}
+                          </span>
+                        </div>
+                      )}
+                      {docData.taxRate > 0 && (
+                        <div className="flex justify-between text-slate-600">
+                          <span>VAT ({docData.taxRate}%):</span>
+                          <span className="font-mono">
+                            +{docData.taxAmount.toLocaleString()} {docData.currency}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex justify-between font-bold text-slate-900 border-t border-slate-200 pt-2 text-sm">
+                      <span>{isInvoice ? 'Final Total:' : 'Estimated Total:'}</span>
+                      <span className="font-mono text-blue-600">
+                        {docData.total.toLocaleString()} {docData.currency}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Email Confirmation Modal */}
+      <EmailConfirmationModal
+        isOpen={emailModalConfig.isOpen}
+        onClose={() => setEmailModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onSuccess={() => loadData()}
+        mode="single"
+        initialRecipientEmail={emailModalConfig.recipientEmail}
+        recipientName={emailModalConfig.recipientName}
+        customerId={emailModalConfig.customerId}
+        initialSubject={emailModalConfig.subject}
+        initialBody={emailModalConfig.body}
+        messageType={emailModalConfig.messageType}
+        title={emailModalConfig.title}
+      />
     </div>
   );
 };

@@ -1,0 +1,183 @@
+{
+  "entities": {
+    "Admin": {
+      "title": "Admin",
+      "description": "Administrator user profile for NexGrid Digital Systems portal access.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique administrator document ID." },
+        "uid": { "type": "string", "description": "Firebase Auth UID of the administrator." },
+        "username": { "type": "string", "description": "Unique lowercase login username." },
+        "email": { "type": "string", "format": "email", "description": "Verified administrator email address." },
+        "fullName": { "type": "string", "description": "Full display name of the administrator." },
+        "role": { "type": "string", "enum": ["super_admin", "admin"], "description": "Access control role." },
+        "isPrimary": { "type": "boolean", "description": "Whether this account is the Primary Administrator." },
+        "mfaEnabled": { "type": "boolean", "description": "Whether TOTP MFA is enabled." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp." }
+      },
+      "required": ["id", "uid", "username", "email", "fullName", "role", "isPrimary", "mfaEnabled", "createdAt", "updatedAt"]
+    },
+    "Customer": {
+      "title": "Customer",
+      "description": "Enterprise customer record managed by NexGrid Digital Systems.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Customer ID (e.g., CUST-1001)." },
+        "ownerId": { "type": "string", "description": "UID of the administrator who owns/created the record." },
+        "businessName": { "type": "string", "description": "Registered business or organization name." },
+        "contactPerson": { "type": "string", "description": "Primary contact person name." },
+        "phone": { "type": "string", "description": "Customer phone number in MSISDN or local format." },
+        "email": { "type": "string", "description": "Customer billing email address." },
+        "billingAddress": { "type": "string", "description": "Physical or online billing address." },
+        "notes": { "type": "string", "description": "Internal account notes." },
+        "status": { "type": "string", "enum": ["active", "archived"], "description": "Account lifecycle status." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": ["id", "ownerId", "businessName", "contactPerson", "phone", "email", "billingAddress", "notes", "status", "createdAt", "updatedAt"]
+    },
+    "Domain": {
+      "title": "Domain",
+      "description": "Domain registration and renewal tracking record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Domain ID (e.g., DOM-1001)." },
+        "ownerId": { "type": "string", "description": "UID of the administrator." },
+        "customerId": { "type": "string", "description": "Referenced Customer ID." },
+        "domainName": { "type": "string", "description": "Fully qualified domain name." },
+        "registrationDate": { "type": "string", "description": "ISO date of initial registration." },
+        "expirationDate": { "type": "string", "description": "ISO date of upcoming expiration." },
+        "renewalPrice": { "type": "number", "description": "Annual renewal fee in ETB." },
+        "registrationPeriodYears": { "type": "number", "description": "Registration period in years." },
+        "registrar": { "type": "string", "description": "Domain registrar provider." },
+        "status": { "type": "string", "enum": ["active", "expiring_soon", "expired", "renewed", "cancelled"], "description": "Domain status." },
+        "notes": { "type": "string", "description": "Domain management notes." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp." }
+      },
+      "required": ["id", "ownerId", "customerId", "domainName", "registrationDate", "expirationDate", "renewalPrice", "registrationPeriodYears", "registrar", "status", "notes", "createdAt", "updatedAt"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "Tax invoice issued to a customer.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Invoice number (e.g., INV-2026-001)." },
+        "ownerId": { "type": "string", "description": "UID of the administrator." },
+        "customerId": { "type": "string", "description": "Customer ID." },
+        "issueDate": { "type": "string", "description": "Invoice issue date." },
+        "dueDate": { "type": "string", "description": "Invoice payment due date." },
+        "currency": { "type": "string", "description": "Currency code (ETB)." },
+        "subtotal": { "type": "number", "description": "Subtotal before tax and discount." },
+        "taxRate": { "type": "number", "description": "Tax percentage rate." },
+        "taxAmount": { "type": "number", "description": "Calculated tax amount." },
+        "discountAmount": { "type": "number", "description": "Discount amount." },
+        "total": { "type": "number", "description": "Final total payable." },
+        "paymentInstructions": { "type": "string", "description": "Banking and Telebirr payment details." },
+        "terms": { "type": "string", "description": "Invoice terms and conditions." },
+        "notes": { "type": "string", "description": "Invoice notes." },
+        "status": { "type": "string", "enum": ["draft", "unpaid", "partially_paid", "paid", "overdue", "cancelled"], "description": "Invoice payment status." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp." }
+      },
+      "required": ["id", "ownerId", "customerId", "issueDate", "dueDate", "currency", "subtotal", "taxRate", "taxAmount", "discountAmount", "total", "paymentInstructions", "terms", "notes", "status", "createdAt", "updatedAt"]
+    },
+    "Quotation": {
+      "title": "Quotation",
+      "description": "Commercial price quotation issued to a customer.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Quotation number (e.g., QUO-2026-001)." },
+        "ownerId": { "type": "string", "description": "UID of the administrator." },
+        "customerId": { "type": "string", "description": "Customer ID." },
+        "issueDate": { "type": "string", "description": "Quotation issue date." },
+        "validUntil": { "type": "string", "description": "Quotation expiration date." },
+        "currency": { "type": "string", "description": "Currency code (ETB)." },
+        "subtotal": { "type": "number", "description": "Subtotal amount." },
+        "taxRate": { "type": "number", "description": "VAT tax rate." },
+        "taxAmount": { "type": "number", "description": "Calculated tax amount." },
+        "discountAmount": { "type": "number", "description": "Discount amount." },
+        "total": { "type": "number", "description": "Total quoted amount." },
+        "paymentInstructions": { "type": "string", "description": "Banking and Telebirr payment instructions." },
+        "terms": { "type": "string", "description": "Quotation validity terms." },
+        "notes": { "type": "string", "description": "Quotation notes." },
+        "status": { "type": "string", "enum": ["draft", "sent", "accepted", "rejected", "expired"], "description": "Quotation status." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp." }
+      },
+      "required": ["id", "ownerId", "customerId", "issueDate", "validUntil", "currency", "subtotal", "taxRate", "taxAmount", "discountAmount", "total", "paymentInstructions", "terms", "notes", "status", "createdAt", "updatedAt"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Customer payment transaction record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Payment ID (e.g., PAY-1001)." },
+        "ownerId": { "type": "string", "description": "UID of the administrator." },
+        "customerId": { "type": "string", "description": "Customer ID." },
+        "invoiceId": { "type": "string", "description": "Linked Invoice ID." },
+        "amount": { "type": "number", "description": "Payment amount." },
+        "currency": { "type": "string", "description": "Currency code." },
+        "paymentDate": { "type": "string", "description": "Date payment was received." },
+        "paymentMethod": { "type": "string", "enum": ["bank_transfer", "cash", "telebirr", "cbe_birr", "check", "other"], "description": "Payment channel." },
+        "referenceNumber": { "type": "string", "description": "Bank or Telebirr transaction reference." },
+        "notes": { "type": "string", "description": "Payment notes." },
+        "recordedBy": { "type": "string", "description": "Administrator name who recorded payment." },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "failed", "reversed"], "description": "Payment verification status." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp." }
+      },
+      "required": ["id", "ownerId", "customerId", "invoiceId", "amount", "currency", "paymentDate", "paymentMethod", "referenceNumber", "notes", "recordedBy", "status", "createdAt", "updatedAt"]
+    },
+    "WorkspaceSync": {
+      "title": "WorkspaceSync",
+      "description": "Real-time cross-device synchronization metadata document for an administrator workspace.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Workspace document ID." },
+        "ownerId": { "type": "string", "description": "UID of the workspace owner." },
+        "version": { "type": "number", "description": "Monotonic sync revision number." },
+        "updatedBy": { "type": "string", "description": "Device or administrator identifier." },
+        "customersCount": { "type": "number", "description": "Total active customers count." },
+        "domainsCount": { "type": "number", "description": "Total domains count." },
+        "invoicesCount": { "type": "number", "description": "Total invoices count." },
+        "quotationsCount": { "type": "number", "description": "Total quotations count." },
+        "paymentsCount": { "type": "number", "description": "Total payments count." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last sync timestamp." }
+      },
+      "required": ["id", "ownerId", "version", "updatedBy", "customersCount", "domainsCount", "invoicesCount", "quotationsCount", "paymentsCount", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/Admin" },
+      "description": "Stores verified administrator accounts for RBAC and portal authentication."
+    },
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/Customer" },
+      "description": "Stores enterprise customer records synced across devices."
+    },
+    "/domains/{domainId}": {
+      "schema": { "$ref": "#/entities/Domain" },
+      "description": "Stores domain registrations and expiration schedules."
+    },
+    "/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/Invoice" },
+      "description": "Stores customer tax invoices."
+    },
+    "/quotations/{quotationId}": {
+      "schema": { "$ref": "#/entities/Quotation" },
+      "description": "Stores commercial quotations."
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Stores customer payment records."
+    },
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/WorkspaceSync" },
+      "description": "Stores real-time cross-device synchronization state."
+    }
+  }
+}

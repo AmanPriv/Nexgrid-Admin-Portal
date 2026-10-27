@@ -53,6 +53,7 @@ export interface Domain {
   customerId: string;
   customerName?: string;
   customerPhone?: string;
+  customerEmail?: string;
   domainName: string;
   registrationDate: string;
   expirationDate: string;
@@ -82,6 +83,7 @@ export interface Invoice {
   customerId: string;
   customerName?: string;
   customerPhone?: string;
+  customerEmail?: string;
   quotationId?: string;
   issueDate: string;
   dueDate: string;
@@ -108,6 +110,7 @@ export interface Quotation {
   customerId: string;
   customerName?: string;
   customerPhone?: string;
+  customerEmail?: string;
   convertedInvoiceId?: string;
   issueDate: string;
   validUntil: string;
@@ -130,6 +133,7 @@ export interface Payment {
   id: string;
   customerId: string;
   customerName?: string;
+  customerEmail?: string;
   invoiceId?: string;
   amount: number;
   currency: string;
@@ -216,6 +220,12 @@ export interface AppSettings {
     currency: string;
     timezone: string;
     inactivityTimeoutMinutes: number;
+    bankName?: string;
+    bankAccountName?: string;
+    bankAccountNumber?: string;
+    telebirrNumber?: string;
+    secondaryBankDetails?: string;
+    bankingDetails?: string;
   };
   sms: {
     provider: 'sms_et' | 'afro_message' | 'custom_webhook';

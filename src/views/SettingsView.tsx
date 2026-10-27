@@ -21,9 +21,18 @@ import {
   ShieldAlert,
   Zap,
   ExternalLink,
+  Mail,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
 import { AppSettings, ActiveSession } from '../types.ts';
+import { PaymentQrCode } from '../components/PaymentQrCode.tsx';
+import { EmailConfirmationModal } from '../components/EmailConfirmationModal.tsx';
+import {
+  getAccessToken,
+  getConnectedGmailEmail,
+  googleSignIn,
+  subscribeWorkspaceAuth,
+} from '../firebase.ts';
 
 export const SettingsView: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -44,13 +53,20 @@ export const SettingsView: React.FC = () => {
   const [factoryMsg, setFactoryMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Form states
-  const [businessName, setBusinessName] = useState('');
-  const [businessPhone, setBusinessPhone] = useState('');
-  const [businessEmail, setBusinessEmail] = useState('');
-  const [businessAddress, setBusinessAddress] = useState('');
-  const [tinNumber, setTinNumber] = useState('');
+  const [businessName, setBusinessName] = useState('NexGrid Digital Systems');
+  const [businessPhone, setBusinessPhone] = useState('+251 906697634');
+  const [businessEmail, setBusinessEmail] = useState('nexgriddigital@gmail.com');
+  const [businessAddress, setBusinessAddress] = useState('Online');
+  const [tinNumber, setTinNumber] = useState('0054892147');
   const [currency, setCurrency] = useState('ETB');
   const [inactivityTimeout, setInactivityTimeout] = useState('60');
+
+  // Banking Details states
+  const [bankName, setBankName] = useState('Commercial Bank of Ethiopia (CBE)');
+  const [bankAccountName, setBankAccountName] = useState('NexGrid Digital Systems');
+  const [bankAccountNumber, setBankAccountNumber] = useState('1000234567890');
+  const [telebirrNumber, setTelebirrNumber] = useState('+251 906697634');
+  const [secondaryBankDetails, setSecondaryBankDetails] = useState('Telebirr / Mobile Money: +251 906697634');
 
   // SMS Gateway states
   const [smsProvider, setSmsProvider] = useState<'sms_et' | 'afro_message' | 'custom_webhook'>('sms_et');
@@ -86,6 +102,38 @@ export const SettingsView: React.FC = () => {
   const [restoring, setRestoring] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Google Workspace Gmail OAuth state
+  const [gmailToken, setGmailToken] = useState<string | null>(null);
+  const [gmailSender, setGmailSender] = useState<string | null>(null);
+  const [signingInGoogle, setSigningInGoogle] = useState(false);
+  const [showTestEmailModal, setShowTestEmailModal] = useState(false);
+  const [testEmailTarget, setTestEmailTarget] = useState('nexgriddigital@gmail.com');
+
+  useEffect(() => {
+    getAccessToken().then((t) => setGmailToken(t));
+    setGmailSender(getConnectedGmailEmail());
+    const unsub = subscribeWorkspaceAuth((token, email) => {
+      setGmailToken(token);
+      setGmailSender(email);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleConnectGmail = async () => {
+    setSigningInGoogle(true);
+    try {
+      const res = await googleSignIn();
+      if (res) {
+        setGmailToken(res.accessToken);
+        setGmailSender(res.user.email);
+      }
+    } catch (err) {
+      console.error('Google Sign-In error:', err);
+    } finally {
+      setSigningInGoogle(false);
+    }
+  };
+
   const loadSettings = async () => {
     setLoading(true);
     try {
@@ -93,12 +141,21 @@ export const SettingsView: React.FC = () => {
       setSettings(data.settings);
 
       setBusinessName(data.settings.general.businessName || 'NexGrid Digital Systems');
-      setBusinessPhone(data.settings.general.businessPhone || '+251 911 234 567');
-      setBusinessEmail(data.settings.general.businessEmail || 'support@nexgrid.et');
-      setBusinessAddress(data.settings.general.businessAddress || 'Addis Ababa, Ethiopia');
+      setBusinessPhone(data.settings.general.businessPhone || '+251 906697634');
+      setBusinessEmail(data.settings.general.businessEmail || 'nexgriddigital@gmail.com');
+      setBusinessAddress(data.settings.general.businessAddress || 'Online');
       setTinNumber(data.settings.general.tinNumber || '0054892147');
       setCurrency(data.settings.general.currency || 'ETB');
       setInactivityTimeout(String(data.settings.general.inactivityTimeoutMinutes || 60));
+
+      setBankName(data.settings.general.bankName || 'Commercial Bank of Ethiopia (CBE)');
+      setBankAccountName(data.settings.general.bankAccountName || data.settings.general.businessName || 'NexGrid Digital Systems');
+      setBankAccountNumber(data.settings.general.bankAccountNumber || '1000234567890');
+      setTelebirrNumber(data.settings.general.telebirrNumber || data.settings.general.businessPhone || '+251 906697634');
+      setSecondaryBankDetails(
+        data.settings.general.secondaryBankDetails ||
+          `Telebirr / Mobile Money: ${data.settings.general.telebirrNumber || data.settings.general.businessPhone || '+251 906697634'}`
+      );
 
       const rawEndpoint = data.settings.sms.apiEndpoint || '';
       setSmsEndpoint(rawEndpoint.includes('sms.et') || !rawEndpoint ? 'https://smsethiopia.com/api/sms/send' : rawEndpoint);
@@ -170,6 +227,12 @@ export const SettingsView: React.FC = () => {
           currency,
           timezone: 'Africa/Addis_Ababa',
           inactivityTimeoutMinutes: Number(inactivityTimeout) || 60,
+          bankName,
+          bankAccountName,
+          bankAccountNumber,
+          telebirrNumber,
+          secondaryBankDetails,
+          bankingDetails: `Bank: ${bankName} | Account Name: ${bankAccountName} | Account No: ${bankAccountNumber} | Telebirr: ${telebirrNumber}${secondaryBankDetails ? ` | ${secondaryBankDetails}` : ''}`,
         },
         sms: {
           provider: smsProvider,
@@ -345,6 +408,115 @@ export const SettingsView: React.FC = () => {
           <span>Settings saved successfully. All changes are actively enforced.</span>
         </div>
       )}
+
+      {/* 0. Google Workspace Gmail API Integration */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
+          <div className="flex items-center gap-2.5">
+            <Mail className="w-4 h-4 text-blue-600" />
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Google Workspace Gmail Integration (Client Email Dispatch)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Send official branded HTML emails (Welcome, Domain Renewals, Invoices, Quotations & Payment Receipts) to clients with registered email addresses
+              </p>
+            </div>
+          </div>
+          <span
+            className={`text-[10px] font-bold px-2.5 py-0.5 rounded self-start sm:self-center ${
+              gmailToken
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                : 'bg-amber-50 text-amber-700 border border-amber-200'
+            }`}
+          >
+            {gmailToken ? `CONNECTED (${gmailSender || 'Gmail API'})` : 'SIGN IN REQUIRED'}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center text-xs">
+          <div className="space-y-1.5">
+            <div className="font-semibold text-slate-800">
+              OAuth 2.0 Scope: <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-[11px]">https://www.googleapis.com/auth/gmail.send</code>
+            </div>
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Your Google Workspace access token is held strictly in browser memory for security and never written to persistent storage. Every email requires your explicit confirmation before dispatch.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center sm:justify-end gap-2.5">
+            <button
+              type="button"
+              onClick={handleConnectGmail}
+              disabled={signingInGoogle}
+              className="gsi-material-button"
+            >
+              <div className="gsi-material-button-state"></div>
+              <div className="gsi-material-button-content-wrapper">
+                <div className="gsi-material-button-icon">
+                  <svg
+                    version="1.1"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 48 48"
+                    style={{ display: 'block' }}
+                  >
+                    <path
+                      fill="#EA4335"
+                      d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+                    ></path>
+                    <path
+                      fill="#4285F4"
+                      d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+                    ></path>
+                    <path
+                      fill="#FBBC05"
+                      d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+                    ></path>
+                    <path
+                      fill="#34A853"
+                      d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+                    ></path>
+                    <path fill="none" d="M0 0h48v48H0z"></path>
+                  </svg>
+                </div>
+                <span className="gsi-material-button-contents">
+                  {signingInGoogle
+                    ? 'Connecting...'
+                    : gmailToken
+                    ? 'Reconnect Google'
+                    : 'Sign in with Google'}
+                </span>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+          <div>
+            <div className="font-semibold text-slate-800">Test Gmail Dispatch</div>
+            <p className="text-[11px] text-slate-500">
+              Send a branded test email to verify Gmail API delivery and inspect the HTML template.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="email"
+              value={testEmailTarget}
+              onChange={(e) => setTestEmailTarget(e.target.value)}
+              placeholder="recipient@example.com"
+              className="w-48 px-2.5 py-1 text-xs border border-slate-300 rounded-md bg-white"
+            />
+            <button
+              type="button"
+              onClick={() => setShowTestEmailModal(true)}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md font-semibold text-xs transition-colors flex items-center gap-1.5"
+            >
+              <Mail className="w-3.5 h-3.5" />
+              <span>Send Test Email</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* 1. SMS Gateway & Multi-Provider Settings */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4">
@@ -750,6 +922,111 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
+        {/* Banking & Payment Settlement Details (Applied to Quotes, Invoices & Reports) */}
+        <div className="pt-4 border-t border-slate-200 space-y-3">
+          <div>
+            <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+              Banking & Payment Settlement Details (Applied to Quotes, Invoices & Reports)
+            </h4>
+            <p className="text-[11px] text-slate-500">
+              These banking details and the Company Profile above are automatically embedded on all system-generated Quotations, Tax Invoices, and Executive Reports.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">
+                Primary Bank Name *
+              </label>
+              <input
+                type="text"
+                value={bankName}
+                onChange={(e) => setBankName(e.target.value)}
+                placeholder="Commercial Bank of Ethiopia (CBE)"
+                className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-semibold"
+              />
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">
+                Bank Account Holder Name *
+              </label>
+              <input
+                type="text"
+                value={bankAccountName}
+                onChange={(e) => setBankAccountName(e.target.value)}
+                placeholder="NexGrid Digital Systems"
+                className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-semibold"
+              />
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">
+                Bank Account Number *
+              </label>
+              <input
+                type="text"
+                value={bankAccountNumber}
+                onChange={(e) => setBankAccountNumber(e.target.value)}
+                placeholder="1000234567890"
+                className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-mono font-bold text-blue-700"
+              />
+            </div>
+
+            <div>
+              <label className="block font-medium text-slate-700 mb-1">
+                Telebirr / Mobile Money Number
+              </label>
+              <input
+                type="text"
+                value={telebirrNumber}
+                onChange={(e) => setTelebirrNumber(e.target.value)}
+                placeholder="+251 906697634"
+                className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-mono"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block font-medium text-slate-700 mb-1">
+                Additional Banking / Payment Instructions (Optional)
+              </label>
+              <input
+                type="text"
+                value={secondaryBankDetails}
+                onChange={(e) => setSecondaryBankDetails(e.target.value)}
+                placeholder="e.g., Bank of Abyssinia / Awash Bank / Telebirr (+251 906697634)"
+                className="w-full px-3 py-1.5 border border-slate-300 rounded-md"
+              />
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <PaymentQrCode
+              settings={{
+                businessName,
+                businessContact: businessPhone,
+                businessPhone,
+                businessEmail,
+                businessAddress,
+                tinNumber,
+                currency,
+                timezone: 'Africa/Addis_Ababa',
+                inactivityTimeoutMinutes: Number(inactivityTimeout) || 60,
+                bankName,
+                bankAccountName,
+                bankAccountNumber,
+                telebirrNumber,
+                secondaryBankDetails,
+              }}
+              context={{
+                documentType: 'BANKING_PROFILE',
+              }}
+              size={84}
+              compact
+            />
+          </div>
+        </div>
+
         <div className="pt-3 border-t border-slate-100 flex justify-end">
           <button
             type="button"
@@ -1085,6 +1362,19 @@ export const SettingsView: React.FC = () => {
           </button>
         </form>
       </div>
+
+      {/* Test Email Confirmation Modal */}
+      <EmailConfirmationModal
+        isOpen={showTestEmailModal}
+        onClose={() => setShowTestEmailModal(false)}
+        mode="single"
+        initialRecipientEmail={testEmailTarget}
+        recipientName="NexGrid Administrator"
+        initialSubject="NexGrid Digital Systems — Gmail API Verification"
+        initialBody={`Hello,\n\nThis is a live verification email dispatched from the NexGrid Digital Systems Customer Management Portal using the Google Workspace Gmail API.\n\nCompany Profile:\n- Business: ${businessName}\n- TIN: ${tinNumber}\n- Support Phone: ${businessPhone}\n- Primary Bank: ${bankName} (${bankAccountNumber})\n\nBest regards,\nNexGrid Digital Systems`}
+        messageType="custom"
+        title="Confirm Test Email Dispatch"
+      />
     </div>
   );
 };

@@ -10,6 +10,7 @@ import {
   AuditLog,
   AppSettings,
 } from '../types.ts';
+import { pushCloudDatabaseState, pullCloudDatabaseState } from './cloudSyncEngine.ts';
 
 const STATIC_DB_KEY = 'nexgrid_cms_production_db_v2';
 const STATIC_SESSION_KEY = 'nexgrid_cms_active_admin_id';
@@ -94,19 +95,70 @@ const defaultTemplates: MessageTemplate[] = [
     ],
     updatedAt: new Date().toISOString(),
   },
+  {
+    id: 'tmpl-welcome-email',
+    type: 'welcome',
+    channel: 'email',
+    name: 'Customer Welcome Email',
+    subject: 'Welcome to NexGrid Digital Systems',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nWelcome to NexGrid Digital Systems! We are pleased to provide enterprise digital solutions, cloud infrastructure, and domain management services for your business.\n\nShould you require any assistance, please reach out to our support team at [Business Contact] or [Business Email].\n\nBest regards,\nNexGrid Digital Systems Management Team',
+    variables: ['[Customer Name]', '[Business Contact]', '[Business Email]', '[Business Phone]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-domain-reminder-email',
+    type: 'domain_reminder',
+    channel: 'email',
+    name: 'Domain Expiration Reminder Email',
+    subject: 'Domain Renewal Notice: [Domain Name] ([Days Remaining] Days Remaining)',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nThis is an official reminder from NexGrid Digital Systems that your registered domain [Domain Name] is scheduled to expire on [Expiration Date] ([Days Remaining] days remaining).\n\nRenewal Fee: [Amount] [Currency]\nPayment Details: Commercial Bank of Ethiopia (CBE) — Account Name: NexGrid Digital Systems | Account No: 1000234567890 | Telebirr: +251 906697634\n\nPlease arrange renewal prior to the expiration date to ensure uninterrupted DNS and web services.\n\nBest regards,\nNexGrid Digital Systems',
+    variables: ['[Customer Name]', '[Domain Name]', '[Expiration Date]', '[Days Remaining]', '[Amount]', '[Currency]', '[Business Contact]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-payment-confirm-email',
+    type: 'payment_confirmation',
+    channel: 'email',
+    name: 'Payment Confirmation Receipt Email',
+    subject: 'Payment Receipt Confirmed — [Service/Invoice Number] (NexGrid Digital Systems)',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nThank you for your payment! We have officially confirmed receipt of [Amount] [Currency] on [Payment Date] towards [Service/Invoice Number].\n\nRemaining Account Balance: [Balance] [Currency]\n\nWe appreciate your continued business with NexGrid Digital Systems.\n\nBest regards,\nNexGrid Digital Systems Finance & Billing',
+    variables: ['[Customer Name]', '[Amount]', '[Currency]', '[Payment Date]', '[Service/Invoice Number]', '[Balance]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-invoice-reminder-email',
+    type: 'invoice_reminder',
+    channel: 'email',
+    name: 'Invoice Payment Reminder — [Invoice Number] (NexGrid Digital Systems)',
+    subject: 'Invoice Payment Reminder: [Invoice Number] Due on [Due Date]',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nThis is a friendly reminder regarding Invoice [Invoice Number] with an outstanding balance of [Amount] [Currency], due on [Due Date].\n\nBanking & Settlement Details:\n• Bank: Commercial Bank of Ethiopia (CBE)\n• Account Name: NexGrid Digital Systems\n• Account Number: 1000234567890\n• Telebirr / Mobile Money: +251 906697634\n\nPlease remit payment and share your transaction reference with us at [Business Email] or [Business Contact].\n\nBest regards,\nNexGrid Digital Systems Billing Team',
+    variables: ['[Customer Name]', '[Invoice Number]', '[Amount]', '[Currency]', '[Due Date]', '[Business Contact]', '[Business Email]'],
+    updatedAt: new Date().toISOString(),
+  },
 ];
 
 const defaultSettings: AppSettings = {
   general: {
     businessName: 'NexGrid Digital Systems',
-    businessContact: '+251 911 234 567',
-    businessEmail: 'support@nexgrid.et',
-    businessPhone: '+251 911 234 567',
-    businessAddress: 'Bole Medhanialem, Commercial Center 4th Floor, Addis Ababa, Ethiopia',
+    businessContact: '+251 906697634',
+    businessEmail: 'nexgriddigital@gmail.com',
+    businessPhone: '+251 906697634',
+    businessAddress: 'Online',
     tinNumber: '0054892147',
     currency: 'ETB',
     timezone: 'Africa/Addis_Ababa',
     inactivityTimeoutMinutes: 60,
+    bankName: 'Commercial Bank of Ethiopia (CBE)',
+    bankAccountName: 'NexGrid Digital Systems',
+    bankAccountNumber: '1000234567890',
+    telebirrNumber: '+251 906697634',
+    secondaryBankDetails: 'Telebirr / Mobile Money: +251 906697634',
+    bankingDetails:
+      'Bank: Commercial Bank of Ethiopia (CBE) | Account Name: NexGrid Digital Systems | Account No: 1000234567890 | Telebirr: +251 906697634',
   },
   sms: {
     provider: 'sms_et',
@@ -167,23 +219,85 @@ function loadDb(): StaticDatabase {
     if (!Array.isArray(parsed.invoices)) parsed.invoices = [];
     if (!Array.isArray(parsed.quotations)) parsed.quotations = [];
     if (!Array.isArray(parsed.payments)) parsed.payments = [];
-    if (!Array.isArray(parsed.templates)) parsed.templates = defaultTemplates;
+    if (!Array.isArray(parsed.templates)) {
+      parsed.templates = defaultTemplates;
+    } else {
+      for (const dt of defaultTemplates) {
+        if (!parsed.templates.some((t) => t.id === dt.id)) {
+          parsed.templates.push(dt);
+        }
+      }
+    }
     if (!Array.isArray(parsed.messageLogs)) parsed.messageLogs = [];
     if (!Array.isArray(parsed.auditLogs)) parsed.auditLogs = [];
     if (!parsed.settings) {
       parsed.settings = JSON.parse(JSON.stringify(defaultSettings));
-    } else if (
-      !parsed.settings.sms?.apiKey ||
-      parsed.settings.sms.apiKey === 'WF9AJSCJ04TVR94M5TNCC2ZSIHI2RNRH9Q05E52L'
-    ) {
-      parsed.settings.sms = {
-        ...parsed.settings.sms,
-        apiKey: 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ',
-        senderId: '',
-        hasApiKey: true,
-        apiKeyMasked: 'T2J1••••••••A4KJ',
-      };
-      localStorage.setItem(STATIC_DB_KEY, JSON.stringify(parsed));
+    } else {
+      let modified = false;
+      if (
+        !parsed.settings.sms?.apiKey ||
+        parsed.settings.sms.apiKey === 'WF9AJSCJ04TVR94M5TNCC2ZSIHI2RNRH9Q05E52L'
+      ) {
+        parsed.settings.sms = {
+          ...parsed.settings.sms,
+          apiKey: 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ',
+          senderId: '',
+          hasApiKey: true,
+          apiKeyMasked: 'T2J1••••••••A4KJ',
+        };
+        modified = true;
+      }
+      const gen = parsed.settings.general;
+      if (gen) {
+        if (!gen.businessPhone || gen.businessPhone === '+251 911 234 567') {
+          gen.businessPhone = '+251 906697634';
+          gen.businessContact = '+251 906697634';
+          modified = true;
+        }
+        if (!gen.businessEmail || gen.businessEmail === 'support@nexgrid.et') {
+          gen.businessEmail = 'nexgriddigital@gmail.com';
+          modified = true;
+        }
+        if (
+          !gen.businessAddress ||
+          gen.businessAddress.includes('Bole Medhanialem') ||
+          gen.businessAddress === 'Addis Ababa, Ethiopia'
+        ) {
+          gen.businessAddress = 'Online';
+          modified = true;
+        }
+        if (!gen.tinNumber) {
+          gen.tinNumber = '0054892147';
+          modified = true;
+        }
+        if (!gen.bankName) {
+          gen.bankName = 'Commercial Bank of Ethiopia (CBE)';
+          modified = true;
+        }
+        if (!gen.bankAccountName) {
+          gen.bankAccountName = gen.businessName || 'NexGrid Digital Systems';
+          modified = true;
+        }
+        if (!gen.bankAccountNumber) {
+          gen.bankAccountNumber = '1000234567890';
+          modified = true;
+        }
+        if (!gen.telebirrNumber) {
+          gen.telebirrNumber = '+251 906697634';
+          modified = true;
+        }
+        if (!gen.secondaryBankDetails) {
+          gen.secondaryBankDetails = 'Telebirr / Mobile Money: +251 906697634';
+          modified = true;
+        }
+        if (!gen.bankingDetails) {
+          gen.bankingDetails = `Bank: ${gen.bankName} | Account Name: ${gen.bankAccountName} | Account No: ${gen.bankAccountNumber} | Telebirr: ${gen.telebirrNumber}`;
+          modified = true;
+        }
+      }
+      if (modified) {
+        localStorage.setItem(STATIC_DB_KEY, JSON.stringify(parsed));
+      }
     }
     return parsed;
   } catch {
@@ -193,6 +307,7 @@ function loadDb(): StaticDatabase {
 
 function saveDb(db: StaticDatabase) {
   localStorage.setItem(STATIC_DB_KEY, JSON.stringify(db));
+  pushCloudDatabaseState(db).catch(() => {});
 }
 
 function hashPasswordSimple(pw: string): string {
@@ -532,11 +647,16 @@ async function sendSmsBrowser(
 }
 
 export async function handleStaticApiRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
-  const db = loadDb();
   const method = (options.method || 'GET').toUpperCase();
   const body = options.body && typeof options.body === 'string' ? JSON.parse(options.body) : {};
   const urlObj = new URL(endpoint, 'http://localhost');
   const pathname = urlObj.pathname;
+
+  if (pathname === '/api/auth/setup-status' || pathname === '/api/auth/login' || pathname === '/api/auth/firebase-google') {
+    await pullCloudDatabaseState().catch(() => {});
+  }
+
+  const db = loadDb();
 
   const activeAdminId = localStorage.getItem(STATIC_SESSION_KEY);
   const currentAdmin = db.admins.find((a) => a.id === activeAdminId) || db.admins[0] || null;
@@ -547,6 +667,57 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       setupRequired: db.admins.length === 0,
       adminsCount: db.admins.length,
       setupSecret: 'STATIC-SETUP-SECRET',
+    };
+  }
+
+  // 1b. Firebase Google Auth Login / Registration
+  if (pathname === '/api/auth/firebase-google' && method === 'POST') {
+    const cleanEmail = String(body.email || '').trim().toLowerCase();
+    if (!cleanEmail) {
+      throw new Error('Verified Google email is required.');
+    }
+    let admin = db.admins.find((a) => a.email.toLowerCase() === cleanEmail);
+    if (!admin) {
+      if (db.admins.length === 0 || cleanEmail === 'getahunamanueal0@gmail.com') {
+        const username = cleanEmail.split('@')[0].replace(/[^a-z0-9_-]/g, '') || 'admin';
+        admin = {
+          id: db.admins.length === 0 ? 'ADM-001' : `ADM-${String(db.admins.length + 1).padStart(3, '0')}`,
+          username,
+          email: cleanEmail,
+          fullName: (body.fullName || 'Primary Administrator').trim(),
+          role: 'super_admin',
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          mfaEnabled: false,
+          isPrimary: db.admins.length === 0,
+          passwordHash: hashPasswordSimple(`FirebaseAuth#${body.uid || Date.now()}!`),
+        };
+        db.admins.push(admin);
+        addAudit(
+          db,
+          admin,
+          'FIREBASE_GOOGLE_ADMIN_LINKED',
+          'auth',
+          admin.id,
+          `Administrator ${admin.email} authenticated via Firebase Google Auth.`
+        );
+        saveDb(db);
+      } else {
+        throw new Error(
+          `Google account (${cleanEmail}) is not registered as an administrator. Sign in with your Primary Administrator account first or add this email in System Users.`
+        );
+      }
+    } else {
+      admin.lastLoginAt = new Date().toISOString();
+      saveDb(db);
+    }
+    localStorage.setItem(STATIC_SESSION_KEY, admin.id);
+    const { passwordHash: _, ...cleanAdmin } = admin;
+    return {
+      token: `static-tok-${admin.id}-${Date.now()}`,
+      csrfToken: 'static-csrf',
+      admin: cleanAdmin,
+      timeoutMinutes: db.settings.general.inactivityTimeoutMinutes || 60,
     };
   }
 
@@ -835,6 +1006,7 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
           ...d,
           customerName: cust?.businessName || 'Unknown',
           customerPhone: cust?.phone || '',
+          customerEmail: cust?.email || '',
           daysLeft: getDaysRemaining(d.expirationDate),
         };
       }),
@@ -867,24 +1039,55 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     return {
       invoices: db.invoices.map((inv) => {
         const cust = db.customers.find((c) => c.id === inv.customerId);
-        return { ...inv, customerName: cust?.businessName || 'Unknown', totalPaid: 0, remainingBalance: inv.total };
+        return {
+          ...inv,
+          customerName: cust?.businessName || 'Unknown',
+          customerPhone: cust?.phone || '',
+          customerEmail: cust?.email || '',
+          totalPaid: 0,
+          remainingBalance: inv.total,
+        };
       }),
     };
   }
 
   if (pathname === '/api/invoices' && method === 'POST') {
+    const cleanItems = (body.items || []).map((it: any, idx: number) => {
+      const qty = Number(it.quantity) || 1;
+      const unitPrice = Number(it.unitPrice) || 0;
+      return {
+        id: it.id || `item-${idx + 1}`,
+        description: (it.description || '').trim() || 'Service Item',
+        quantity: qty,
+        unitPrice,
+        total: qty * unitPrice,
+      };
+    });
+    const subtotal = cleanItems.reduce((sum: number, it: any) => sum + it.total, 0);
+    const taxRate = Number(body.taxRate) >= 0 ? Number(body.taxRate) : 15;
+    const discountAmount = Number(body.discountAmount) || 0;
+    const taxable = Math.max(0, subtotal - discountAmount);
+    const taxAmount = (taxable * taxRate) / 100;
+    const total = Math.max(0, taxable + taxAmount);
+
     const inv: Invoice = {
       id: `INV-${new Date().getFullYear()}-${String(db.invoices.length + 1).padStart(3, '0')}`,
       customerId: body.customerId,
       issueDate: body.issueDate || new Date().toISOString().slice(0, 10),
       dueDate: body.dueDate || new Date().toISOString().slice(0, 10),
-      currency: body.currency || 'ETB',
-      items: body.items || [],
-      subtotal: Number(body.subtotal) || 0,
-      taxRate: Number(body.taxRate) || 0,
-      taxAmount: Number(body.taxAmount) || 0,
-      discountAmount: Number(body.discountAmount) || 0,
-      total: Number(body.total) || 0,
+      currency: body.currency || db.settings.general.currency || 'ETB',
+      items: cleanItems,
+      subtotal,
+      taxRate,
+      taxAmount,
+      discountAmount,
+      total,
+      notes: body.notes,
+      paymentInstructions:
+        body.paymentInstructions ||
+        db.settings.general.bankingDetails ||
+        'Bank: Commercial Bank of Ethiopia (CBE) | Account Name: NexGrid Digital Systems | Account No: 1000234567890 | Telebirr: +251 906697634',
+      terms: body.terms || 'Payment is due within 15 calendar days from the invoice date.',
       status: body.status || 'unpaid',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -895,14 +1098,105 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
   }
 
   if (pathname === '/api/quotations' && method === 'GET') {
-    return { quotations: db.quotations };
+    return {
+      quotations: db.quotations.map((q) => {
+        const cust = db.customers.find((c) => c.id === q.customerId);
+        return {
+          ...q,
+          customerName: cust?.businessName || 'Unknown',
+          customerPhone: cust?.phone,
+          customerEmail: cust?.email || '',
+        };
+      }),
+    };
+  }
+
+  if (pathname === '/api/quotations' && method === 'POST') {
+    const cleanItems = (body.items || []).map((it: any, idx: number) => {
+      const qty = Number(it.quantity) || 1;
+      const unitPrice = Number(it.unitPrice) || 0;
+      return {
+        id: it.id || `item-${idx + 1}`,
+        description: (it.description || '').trim() || 'Service Item',
+        quantity: qty,
+        unitPrice,
+        total: qty * unitPrice,
+      };
+    });
+    const subtotal = cleanItems.reduce((sum: number, it: any) => sum + it.total, 0);
+    const taxRate = Number(body.taxRate) >= 0 ? Number(body.taxRate) : 15;
+    const discountAmount = Number(body.discountAmount) || 0;
+    const taxable = Math.max(0, subtotal - discountAmount);
+    const taxAmount = (taxable * taxRate) / 100;
+    const total = Math.max(0, taxable + taxAmount);
+
+    const quo: Quotation = {
+      id: `QUO-${new Date().getFullYear()}-${String(db.quotations.length + 1).padStart(3, '0')}`,
+      customerId: body.customerId,
+      issueDate: body.issueDate || new Date().toISOString().slice(0, 10),
+      validUntil: body.validUntil || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+      currency: body.currency || db.settings.general.currency || 'ETB',
+      items: cleanItems,
+      subtotal,
+      taxRate,
+      taxAmount,
+      discountAmount,
+      total,
+      notes: body.notes,
+      paymentInstructions:
+        body.paymentInstructions ||
+        db.settings.general.bankingDetails ||
+        'Bank: Commercial Bank of Ethiopia (CBE) | Account Name: NexGrid Digital Systems | Account No: 1000234567890 | Telebirr: +251 906697634',
+      terms: body.terms || 'Quotation valid for 30 calendar days.',
+      status: 'sent',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    db.quotations.push(quo);
+    saveDb(db);
+    return { quotation: quo };
+  }
+
+  if (pathname.startsWith('/api/quotations/') && pathname.endsWith('/convert-to-invoice') && method === 'POST') {
+    const qId = pathname.split('/')[3];
+    const quotation = db.quotations.find((q) => q.id === qId);
+    if (!quotation) throw new Error('Quotation not found.');
+    const inv: Invoice = {
+      id: `INV-${new Date().getFullYear()}-${String(db.invoices.length + 1).padStart(3, '0')}`,
+      customerId: quotation.customerId,
+      quotationId: quotation.id,
+      issueDate: new Date().toISOString().slice(0, 10),
+      dueDate: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+      currency: quotation.currency,
+      items: quotation.items.map((it) => ({ ...it })),
+      subtotal: quotation.subtotal,
+      taxRate: quotation.taxRate,
+      taxAmount: quotation.taxAmount,
+      discountAmount: quotation.discountAmount,
+      total: quotation.total,
+      notes: `Converted from Quotation ${quotation.id}. ${quotation.notes || ''}`.trim(),
+      paymentInstructions:
+        quotation.paymentInstructions ||
+        db.settings.general.bankingDetails ||
+        'Bank: Commercial Bank of Ethiopia (CBE) | Account Name: NexGrid Digital Systems | Account No: 1000234567890 | Telebirr: +251 906697634',
+      terms: quotation.terms || 'Payment is due within 15 calendar days from the invoice date.',
+      status: 'unpaid',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    quotation.status = 'accepted';
+    quotation.convertedInvoiceId = inv.id;
+    quotation.updatedAt = new Date().toISOString();
+    db.invoices.push(inv);
+    saveDb(db);
+    return { success: true, invoice: inv, quotation };
   }
 
   if (pathname === '/api/payments' && method === 'GET') {
     return {
       payments: db.payments.map((p) => {
         const cust = db.customers.find((c) => c.id === p.customerId);
-        return { ...p, customerName: cust?.businessName || 'Unknown' };
+        return { ...p, customerName: cust?.businessName || 'Unknown', customerEmail: cust?.email || '' };
       }),
     };
   }
@@ -931,6 +1225,47 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
   // 10. Messaging & Templates
   if (pathname === '/api/messages/logs' && method === 'GET') {
     return { logs: db.messageLogs };
+  }
+
+  if (pathname === '/api/messages/log-email' && method === 'POST') {
+    const validType = [
+      'welcome',
+      'domain_reminder',
+      'payment_confirmation',
+      'invoice_reminder',
+      'test',
+      'custom',
+    ].includes(body.messageType)
+      ? body.messageType
+      : 'custom';
+    const logEntry: MessageLog = {
+      id: `EML-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      customerId: body.customerId || 'DIRECT',
+      customerName: body.customerName || 'Email Recipient',
+      recipient: String(body.recipient || '').trim(),
+      channel: 'email',
+      messageType: validType,
+      subject: body.subject || 'NexGrid Digital Systems Notification',
+      content: String(body.content || ''),
+      providerReference: body.providerReference || `GMAIL-${Date.now()}`,
+      status: body.status === 'failed' ? 'failed' : 'sent',
+      errorDetails: body.errorDetails || undefined,
+      attemptCount: 1,
+      lastAttemptAt: new Date().toISOString(),
+      domainId: body.domainId || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    db.messageLogs.unshift(logEntry);
+    addAudit(
+      db,
+      currentAdmin,
+      logEntry.status === 'sent' ? 'EMAIL_DISPATCHED_GMAIL' : 'EMAIL_DISPATCH_FAILED',
+      'notification',
+      logEntry.id,
+      `Sent email "${logEntry.subject}" to ${logEntry.recipient} via Gmail API`
+    );
+    saveDb(db);
+    return { success: true, log: logEntry };
   }
 
   if ((pathname === '/api/messages/send' || pathname === '/api/messages/send-test') && method === 'POST') {
@@ -999,6 +1334,18 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     return { templates: db.templates };
   }
 
+  if (pathname.startsWith('/api/templates/') && method === 'PUT') {
+    const tId = pathname.split('/')[3];
+    const tmpl = db.templates.find((t) => t.id === tId);
+    if (!tmpl) throw new Error('Template not found.');
+    if (body.bodyTemplate !== undefined) tmpl.bodyTemplate = body.bodyTemplate;
+    if (body.subject !== undefined) tmpl.subject = body.subject;
+    if (body.name !== undefined) tmpl.name = body.name;
+    tmpl.updatedAt = new Date().toISOString();
+    saveDb(db);
+    return { template: tmpl };
+  }
+
   // 11. Settings, Reports, Audit Logs, Factory Reset
   if (pathname === '/api/settings' && method === 'GET') {
     const copy = JSON.parse(JSON.stringify(db.settings));
@@ -1034,31 +1381,71 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
   }
 
   if (pathname === '/api/reports' && method === 'GET') {
+    const monthMap: Record<string, { month: string; invoiced: number; collected: number }> = {};
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      monthMap[key] = { month: label, invoiced: 0, collected: 0 };
+    }
+
+    for (const inv of db.invoices) {
+      if (inv.status === 'cancelled') continue;
+      const key = (inv.issueDate || '').slice(0, 7);
+      if (monthMap[key]) {
+        monthMap[key].invoiced += Number(inv.total) || 0;
+      }
+    }
+
+    for (const pay of db.payments) {
+      if (pay.status !== 'confirmed') continue;
+      const key = (pay.paymentDate || '').slice(0, 7);
+      if (monthMap[key]) {
+        monthMap[key].collected += Number(pay.amount) || 0;
+      }
+    }
+
+    const activeInvoices = db.invoices.filter((i) => i.status !== 'cancelled' && i.status !== 'draft');
+    const confirmedPayments = db.payments.filter((p) => p.status === 'confirmed');
+    const totalInvoiced = activeInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0);
+    const totalReceived = confirmedPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const outstandingReceivables = Math.max(0, totalInvoiced - totalReceived);
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const unpaidInvoices = activeInvoices.filter((i) => i.status !== 'paid');
+    const overdueInvoices = unpaidInvoices.filter((i) => i.dueDate < todayStr || i.status === 'overdue');
+    const overdueAmount = overdueInvoices.reduce((s, i) => s + (Number(i.remainingBalance ?? i.total) || 0), 0);
+    const pendingQuotes = db.quotations.filter((q) => q.status === 'sent' || q.status === 'draft');
+
     return {
-      monthlyTrend: [],
+      monthlyTrend: Object.values(monthMap),
       smsStats: {
         total: db.messageLogs.length,
         sent: db.messageLogs.filter((m) => m.status === 'sent').length,
         delivered: db.messageLogs.filter((m) => m.status === 'delivered').length,
         failed: db.messageLogs.filter((m) => m.status === 'failed').length,
-        queued: 0,
+        queued: db.messageLogs.filter((m) => m.status === 'queued').length,
       },
       domainHealth: {
         total: db.domains.length,
-        active: db.domains.length,
-        expiringSoon: 0,
-        expired: 0,
+        active: db.domains.filter((d) => getDaysRemaining(d.expirationDate) >= 0 && d.status !== 'cancelled').length,
+        expiringSoon: db.domains.filter((d) => {
+          const days = getDaysRemaining(d.expirationDate);
+          return days >= 0 && days <= 30 && d.status !== 'cancelled';
+        }).length,
+        expired: db.domains.filter((d) => getDaysRemaining(d.expirationDate) < 0 && d.status !== 'cancelled').length,
       },
       financials: {
-        totalInvoiced: 0,
-        totalReceived: 0,
-        outstandingReceivables: 0,
-        overdueAmount: 0,
-        unpaidInvoiceCount: 0,
-        overdueInvoiceCount: 0,
-        pendingQuotationsCount: 0,
-        pendingQuotationsValue: 0,
-        currency: 'ETB',
+        totalInvoiced,
+        totalReceived,
+        outstandingReceivables,
+        overdueAmount,
+        unpaidInvoiceCount: unpaidInvoices.length,
+        overdueInvoiceCount: overdueInvoices.length,
+        pendingQuotationsCount: pendingQuotes.length,
+        pendingQuotationsValue: pendingQuotes.reduce((s, q) => s + (Number(q.total) || 0), 0),
+        currency: db.settings.general.currency || 'ETB',
       },
     };
   }

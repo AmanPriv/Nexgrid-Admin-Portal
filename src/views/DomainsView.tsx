@@ -13,9 +13,12 @@ import {
   History,
   X,
   CreditCard,
+  Mail,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
 import { Domain, Customer } from '../types.ts';
+import { EmailConfirmationModal } from '../components/EmailConfirmationModal.tsx';
+import { composeDomainReminderEmail } from '../services/gmailService.ts';
 
 interface DomainsViewProps {
   initialOpenNewModal?: boolean;
@@ -68,6 +71,26 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
   const [reminderMessage, setReminderMessage] = useState('');
   const [sendingReminder, setSendingReminder] = useState(false);
   const [reminderResult, setReminderResult] = useState<{ status: string; error?: string } | null>(null);
+
+  // Email Confirmation Modal State
+  const [emailModalConfig, setEmailModalConfig] = useState<{
+    isOpen: boolean;
+    recipientEmail: string;
+    recipientName: string;
+    customerId: string;
+    domainId?: string;
+    subject: string;
+    body: string;
+    title: string;
+  }>({
+    isOpen: false,
+    recipientEmail: '',
+    recipientName: '',
+    customerId: '',
+    subject: '',
+    body: '',
+    title: 'Send Domain Renewal Email',
+  });
 
   // History Drawer
   const [viewHistoryDomain, setViewHistoryDomain] = useState<Domain | null>(null);
@@ -213,7 +236,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
       setRenewingDomain(null);
       loadData();
     } catch (err: any) {
-      alert(`Renewal failed: ${err.message}`);
+      setFormError(`Renewal failed: ${err.message}`);
     } finally {
       setRenewingLoading(false);
     }
@@ -225,6 +248,23 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
     const daysLeft = d.daysLeft ?? 0;
     const text = `Hello ${d.customerName || 'Customer'}, your domain ${d.domainName} is scheduled to expire on ${new Date(d.expirationDate).toLocaleDateString('en-GB')} (${daysLeft} days left). Renewal price: ${d.renewalPrice.toLocaleString()} ETB. Please contact NexGrid Digital Systems to arrange renewal.`;
     setReminderMessage(text);
+  };
+
+  const handleOpenEmailDomain = (d: Domain) => {
+    const cust = customers.find((c) => c.id === d.customerId);
+    const email = (d.customerEmail || cust?.email || '').trim();
+    if (!email) return;
+    const composed = composeDomainReminderEmail(d, cust);
+    setEmailModalConfig({
+      isOpen: true,
+      recipientEmail: email,
+      recipientName: d.customerName || cust?.businessName || 'Client',
+      customerId: d.customerId,
+      domainId: d.id,
+      subject: composed.subject,
+      body: composed.body,
+      title: `Send Domain Renewal Email — ${d.domainName}`,
+    });
   };
 
   const handleSendReminder = async () => {
@@ -336,6 +376,11 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
                   const days = dom.daysLeft ?? 0;
                   const isExpired = days < 0;
                   const isExpiringSoon = days >= 0 && days <= 30;
+                  const resolvedEmail = (
+                    dom.customerEmail ||
+                    customers.find((c) => c.id === dom.customerId)?.email ||
+                    ''
+                  ).trim();
 
                   return (
                     <tr key={dom.id} className="hover:bg-slate-50/80 transition-colors">
@@ -350,6 +395,9 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
                       <td className="py-3 px-4">
                         <div className="font-semibold text-slate-900">{dom.customerName}</div>
                         <div className="text-[11px] font-mono text-slate-500">{dom.customerPhone}</div>
+                        {resolvedEmail && (
+                          <div className="text-[10px] text-blue-600 truncate max-w-[160px]">{resolvedEmail}</div>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-slate-600">
                         {dom.registrar || 'Ethio Telecom (.et)'}
@@ -394,9 +442,19 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {resolvedEmail && (
+                            <button
+                              onClick={() => handleOpenEmailDomain(dom)}
+                              title={`Send Email Reminder to ${resolvedEmail}`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-100 font-semibold text-[11px]"
+                            >
+                              <Mail className="w-3 h-3" />
+                              <span>Email</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => handleOpenRemind(dom)}
-                            title="Dispatch SMS / Email reminder"
+                            title="Dispatch SMS reminder"
                             className="p-1 rounded text-slate-500 hover:text-blue-600 hover:bg-slate-100"
                           >
                             <Send className="w-3.5 h-3.5" />
@@ -780,7 +838,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-200">
                 <button
                   type="button"
                   onClick={() => setRemindingDomain(null)}
@@ -788,6 +846,21 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
                 >
                   Close
                 </button>
+                {(remindingDomain.customerEmail ||
+                  customers.find((c) => c.id === remindingDomain.customerId)?.email) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const dom = remindingDomain;
+                      setRemindingDomain(null);
+                      handleOpenEmailDomain(dom);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 text-blue-700 font-semibold"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Email via Gmail</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleSendReminder}
@@ -849,6 +922,22 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Email Confirmation Modal */}
+      <EmailConfirmationModal
+        isOpen={emailModalConfig.isOpen}
+        onClose={() => setEmailModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onSuccess={() => loadData()}
+        mode="single"
+        initialRecipientEmail={emailModalConfig.recipientEmail}
+        recipientName={emailModalConfig.recipientName}
+        customerId={emailModalConfig.customerId}
+        domainId={emailModalConfig.domainId}
+        initialSubject={emailModalConfig.subject}
+        initialBody={emailModalConfig.body}
+        messageType="domain_reminder"
+        title={emailModalConfig.title}
+      />
     </div>
   );
 };

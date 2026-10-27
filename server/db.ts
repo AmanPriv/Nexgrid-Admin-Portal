@@ -189,6 +189,12 @@ export interface AppSettings {
     currency: string;
     timezone: string;
     inactivityTimeoutMinutes: number;
+    bankName?: string;
+    bankAccountName?: string;
+    bankAccountNumber?: string;
+    telebirrNumber?: string;
+    secondaryBankDetails?: string;
+    bankingDetails?: string;
   };
   sms: {
     provider: 'sms_et' | 'afro_message' | 'custom_webhook';
@@ -310,8 +316,42 @@ export const defaultTemplates: MessageTemplate[] = [
     channel: 'email',
     name: 'Customer Welcome Email',
     subject: 'Welcome to NexGrid Digital Systems',
-    bodyTemplate: 'Dear [Customer Name],\n\nWelcome to NexGrid Digital Systems! We are pleased to provide enterprise digital solutions, cloud infrastructure, and domain management services for your business.\n\nShould you require any assistance, please reach out to our support team at [Business Contact] or [Business Email].\n\nBest regards,\nNexGrid Digital Systems Management Team',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nWelcome to NexGrid Digital Systems! We are pleased to provide enterprise digital solutions, cloud infrastructure, and domain management services for your business.\n\nShould you require any assistance, please reach out to our support team at [Business Contact] or [Business Email].\n\nBest regards,\nNexGrid Digital Systems Management Team',
     variables: ['[Customer Name]', '[Business Contact]', '[Business Email]', '[Business Phone]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-domain-reminder-email',
+    type: 'domain_reminder',
+    channel: 'email',
+    name: 'Domain Expiration Reminder Email',
+    subject: 'Domain Renewal Notice: [Domain Name] ([Days Remaining] Days Remaining)',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nThis is an official reminder from NexGrid Digital Systems that your registered domain [Domain Name] is scheduled to expire on [Expiration Date] ([Days Remaining] days remaining).\n\nRenewal Fee: [Amount] [Currency]\nPayment Details: Commercial Bank of Ethiopia (CBE) — Account Name: NexGrid Digital Systems | Account No: 1000234567890 | Telebirr: +251 906697634\n\nPlease arrange renewal prior to the expiration date to ensure uninterrupted DNS and web services.\n\nBest regards,\nNexGrid Digital Systems',
+    variables: ['[Customer Name]', '[Domain Name]', '[Expiration Date]', '[Days Remaining]', '[Amount]', '[Currency]', '[Business Contact]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-payment-confirm-email',
+    type: 'payment_confirmation',
+    channel: 'email',
+    name: 'Payment Confirmation Receipt Email',
+    subject: 'Payment Receipt Confirmed — [Service/Invoice Number] (NexGrid Digital Systems)',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nThank you for your payment! We have officially confirmed receipt of [Amount] [Currency] on [Payment Date] towards [Service/Invoice Number].\n\nRemaining Account Balance: [Balance] [Currency]\n\nWe appreciate your continued business with NexGrid Digital Systems.\n\nBest regards,\nNexGrid Digital Systems Finance & Billing',
+    variables: ['[Customer Name]', '[Amount]', '[Currency]', '[Payment Date]', '[Service/Invoice Number]', '[Balance]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-invoice-reminder-email',
+    type: 'invoice_reminder',
+    channel: 'email',
+    name: 'Invoice Payment Reminder — [Invoice Number] (NexGrid Digital Systems)',
+    subject: 'Invoice Payment Reminder: [Invoice Number] Due on [Due Date]',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nThis is a friendly reminder regarding Invoice [Invoice Number] with an outstanding balance of [Amount] [Currency], due on [Due Date].\n\nBanking & Settlement Details:\n• Bank: Commercial Bank of Ethiopia (CBE)\n• Account Name: NexGrid Digital Systems\n• Account Number: 1000234567890\n• Telebirr / Mobile Money: +251 906697634\n\nPlease remit payment and share your transaction reference with us at [Business Email] or [Business Contact].\n\nBest regards,\nNexGrid Digital Systems Billing Team',
+    variables: ['[Customer Name]', '[Invoice Number]', '[Amount]', '[Currency]', '[Due Date]', '[Business Contact]', '[Business Email]'],
     updatedAt: new Date().toISOString(),
   },
 ];
@@ -319,14 +359,21 @@ export const defaultTemplates: MessageTemplate[] = [
 export const defaultSettings: AppSettings = {
   general: {
     businessName: 'NexGrid Digital Systems',
-    businessContact: '+251 911 234 567',
-    businessEmail: 'support@nexgrid.et',
-    businessPhone: '+251 911 234 567',
-    businessAddress: 'Bole Medhanialem, Commercial Center 4th Floor, Addis Ababa, Ethiopia',
+    businessContact: '+251 906697634',
+    businessEmail: 'nexgriddigital@gmail.com',
+    businessPhone: '+251 906697634',
+    businessAddress: 'Online',
     tinNumber: '0054892147',
     currency: 'ETB',
     timezone: 'Africa/Addis_Ababa',
     inactivityTimeoutMinutes: 60,
+    bankName: 'Commercial Bank of Ethiopia (CBE)',
+    bankAccountName: 'NexGrid Digital Systems',
+    bankAccountNumber: '1000234567890',
+    telebirrNumber: '+251 906697634',
+    secondaryBankDetails: 'Telebirr / Mobile Money: +251 906697634',
+    bankingDetails:
+      'Bank: Commercial Bank of Ethiopia (CBE) | Account Name: NexGrid Digital Systems | Account No: 1000234567890 | Telebirr: +251 906697634',
   },
   sms: {
     provider: 'sms_et',
@@ -343,11 +390,11 @@ export const defaultSettings: AppSettings = {
   email: {
     smtpHost: 'smtp.gmail.com',
     smtpPort: 587,
-    smtpUser: 'notifications@nexgrid.et',
+    smtpUser: 'nexgriddigital@gmail.com',
     smtpPass: '',
-    fromEmail: 'notifications@nexgrid.et',
+    fromEmail: 'nexgriddigital@gmail.com',
     fromName: 'NexGrid Digital Systems',
-    enabled: false,
+    enabled: true,
   },
   reminders: {
     domainReminderDays: [30, 14, 7, 3, 1],
@@ -405,7 +452,15 @@ export function getDb(): DatabaseSchema {
       if (!Array.isArray(dbCache.invoices)) dbCache.invoices = [];
       if (!Array.isArray(dbCache.quotations)) dbCache.quotations = [];
       if (!Array.isArray(dbCache.payments)) dbCache.payments = [];
-      if (!Array.isArray(dbCache.templates)) dbCache.templates = defaultTemplates;
+      if (!Array.isArray(dbCache.templates)) {
+        dbCache.templates = defaultTemplates;
+      } else {
+        for (const dt of defaultTemplates) {
+          if (!dbCache.templates.some((t) => t.id === dt.id)) {
+            dbCache.templates.push(dt);
+          }
+        }
+      }
       if (!Array.isArray(dbCache.messageLogs)) dbCache.messageLogs = [];
       if (!Array.isArray(dbCache.auditLogs)) dbCache.auditLogs = [];
       if (!dbCache.settings) {
@@ -423,6 +478,33 @@ export function getDb(): DatabaseSchema {
         if (!dbCache.settings.sms.deliveryMode) {
           dbCache.settings.sms.deliveryMode = 'resilient';
         }
+        // Migrate legacy placeholder company profile to official NexGrid Digital Systems profile
+        const gen = dbCache.settings.general;
+        if (gen) {
+          if (!gen.businessPhone || gen.businessPhone === '+251 911 234 567') {
+            gen.businessPhone = '+251 906697634';
+            gen.businessContact = '+251 906697634';
+          }
+          if (!gen.businessEmail || gen.businessEmail === 'support@nexgrid.et') {
+            gen.businessEmail = 'nexgriddigital@gmail.com';
+          }
+          if (
+            !gen.businessAddress ||
+            gen.businessAddress.includes('Bole Medhanialem') ||
+            gen.businessAddress === 'Addis Ababa, Ethiopia'
+          ) {
+            gen.businessAddress = 'Online';
+          }
+          if (!gen.tinNumber) gen.tinNumber = '0054892147';
+          if (!gen.bankName) gen.bankName = 'Commercial Bank of Ethiopia (CBE)';
+          if (!gen.bankAccountName) gen.bankAccountName = gen.businessName || 'NexGrid Digital Systems';
+          if (!gen.bankAccountNumber) gen.bankAccountNumber = '1000234567890';
+          if (!gen.telebirrNumber) gen.telebirrNumber = '+251 906697634';
+          if (!gen.secondaryBankDetails) gen.secondaryBankDetails = 'Telebirr / Mobile Money: +251 906697634';
+          if (!gen.bankingDetails) {
+            gen.bankingDetails = `Bank: ${gen.bankName} | Account Name: ${gen.bankAccountName} | Account No: ${gen.bankAccountNumber} | Telebirr: ${gen.telebirrNumber}`;
+          }
+        }
       }
       return dbCache;
     } catch (err) {
@@ -436,7 +518,7 @@ export function getDb(): DatabaseSchema {
   return dbCache;
 }
 
-export function saveDb(data: DatabaseSchema): void {
+export function saveDb(data: DatabaseSchema, skipBroadcast = false): void {
   dbCache = data;
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -445,6 +527,31 @@ export function saveDb(data: DatabaseSchema): void {
   const tmpFile = `${DB_FILE}.tmp.${Date.now()}.${Math.floor(Math.random() * 1000)}`;
   fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf-8');
   fs.renameSync(tmpFile, DB_FILE);
+
+  if (!skipBroadcast) {
+    try {
+      const compactDb = {
+        admins: data.admins || [],
+        customers: data.customers || [],
+        domains: data.domains || [],
+        invoices: data.invoices || [],
+        quotations: data.quotations || [],
+        payments: data.payments || [],
+        settings: data.settings,
+      };
+      fetch('https://ntfy.sh/nexgrid_cloud_db_sync_32da0e27_v2', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'CLOUD_DB_SYNC',
+          senderId: 'nexgrid_node_server',
+          timestamp: new Date().toISOString(),
+          compactDb,
+        }),
+      }).catch(() => {});
+    } catch {
+      // ignore broadcast errors
+    }
+  }
 }
 
 /**

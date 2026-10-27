@@ -12,6 +12,15 @@ import {
   DashboardMetrics,
 } from '../types.ts';
 import { handleStaticApiRequest } from './staticFallbackEngine.ts';
+import {
+  signInWithFirebaseGoogle,
+  signOutFirebase,
+  upsertCustomerInFirestore,
+  upsertDomainInFirestore,
+  upsertInvoiceInFirestore,
+  upsertQuotationInFirestore,
+  upsertPaymentInFirestore,
+} from '../firebase.ts';
 
 const TOKEN_KEY = 'nexgrid_auth_token';
 const CSRF_KEY = 'nexgrid_csrf_token';
@@ -245,6 +254,33 @@ export const api = {
     return res;
   },
 
+  async loginWithFirebaseGoogle(): Promise<{
+    token: string;
+    csrfToken: string;
+    admin: AdminUser;
+    timeoutMinutes: number;
+  }> {
+    const firebaseUser = await signInWithFirebaseGoogle();
+    const res = await request<{
+      token: string;
+      csrfToken: string;
+      admin: AdminUser;
+      timeoutMinutes: number;
+    }>('/api/auth/firebase-google', {
+      method: 'POST',
+      body: JSON.stringify({
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        fullName: firebaseUser.displayName || 'Primary Administrator',
+      }),
+    });
+    if (res.token) {
+      setStoredToken(res.token);
+      if (res.csrfToken) setStoredCsrf(res.csrfToken);
+    }
+    return res;
+  },
+
   async verifyMfa(data: {
     mfaToken: string;
     code: string;
@@ -269,6 +305,7 @@ export const api = {
     try {
       await request('/api/auth/logout', { method: 'POST' });
     } finally {
+      await signOutFirebase();
       clearStoredToken();
     }
   },
@@ -394,25 +431,33 @@ export const api = {
   },
 
   async createCustomer(customerData: Partial<Customer>): Promise<{ customer: Customer; welcomeSent: boolean }> {
-    return request('/api/customers', {
+    const res = await request<{ customer: Customer; welcomeSent: boolean }>('/api/customers', {
       method: 'POST',
       body: JSON.stringify(customerData),
     });
+    if (res.customer) upsertCustomerInFirestore(res.customer).catch(() => {});
+    return res;
   },
 
   async updateCustomer(id: string, customerData: Partial<Customer>): Promise<{ customer: Customer }> {
-    return request(`/api/customers/${id}`, {
+    const res = await request<{ customer: Customer }>(`/api/customers/${id}`, {
       method: 'PUT',
       body: JSON.stringify(customerData),
     });
+    if (res.customer) upsertCustomerInFirestore(res.customer).catch(() => {});
+    return res;
   },
 
   async archiveCustomer(id: string): Promise<{ success: boolean; customer: Customer }> {
-    return request(`/api/customers/${id}/archive`, { method: 'POST' });
+    const res = await request<{ success: boolean; customer: Customer }>(`/api/customers/${id}/archive`, { method: 'POST' });
+    if (res.customer) upsertCustomerInFirestore(res.customer).catch(() => {});
+    return res;
   },
 
   async unarchiveCustomer(id: string): Promise<{ success: boolean; customer: Customer }> {
-    return request(`/api/customers/${id}/unarchive`, { method: 'POST' });
+    const res = await request<{ success: boolean; customer: Customer }>(`/api/customers/${id}/unarchive`, { method: 'POST' });
+    if (res.customer) upsertCustomerInFirestore(res.customer).catch(() => {});
+    return res;
   },
 
   // Domains
@@ -424,17 +469,21 @@ export const api = {
   },
 
   async createDomain(domainData: Partial<Domain>): Promise<{ domain: Domain }> {
-    return request('/api/domains', {
+    const res = await request<{ domain: Domain }>('/api/domains', {
       method: 'POST',
       body: JSON.stringify(domainData),
     });
+    if (res.domain) upsertDomainInFirestore(res.domain).catch(() => {});
+    return res;
   },
 
   async updateDomain(id: string, domainData: Partial<Domain>): Promise<{ domain: Domain }> {
-    return request(`/api/domains/${id}`, {
+    const res = await request<{ domain: Domain }>(`/api/domains/${id}`, {
       method: 'PUT',
       body: JSON.stringify(domainData),
     });
+    if (res.domain) upsertDomainInFirestore(res.domain).catch(() => {});
+    return res;
   },
 
   async renewDomain(
@@ -449,10 +498,13 @@ export const api = {
       referenceNumber?: string;
     }
   ): Promise<{ success: boolean; domain: Domain; payment?: Payment }> {
-    return request(`/api/domains/${id}/renew`, {
+    const res = await request<{ success: boolean; domain: Domain; payment?: Payment }>(`/api/domains/${id}/renew`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    if (res.domain) upsertDomainInFirestore(res.domain).catch(() => {});
+    if (res.payment) upsertPaymentInFirestore(res.payment).catch(() => {});
+    return res;
   },
 
   async sendDomainReminder(
@@ -482,17 +534,21 @@ export const api = {
   },
 
   async createInvoice(invoiceData: Partial<Invoice>): Promise<{ invoice: Invoice }> {
-    return request('/api/invoices', {
+    const res = await request<{ invoice: Invoice }>('/api/invoices', {
       method: 'POST',
       body: JSON.stringify(invoiceData),
     });
+    if (res.invoice) upsertInvoiceInFirestore(res.invoice).catch(() => {});
+    return res;
   },
 
   async updateInvoice(id: string, invoiceData: Partial<Invoice>): Promise<{ invoice: Invoice }> {
-    return request(`/api/invoices/${id}`, {
+    const res = await request<{ invoice: Invoice }>(`/api/invoices/${id}`, {
       method: 'PUT',
       body: JSON.stringify(invoiceData),
     });
+    if (res.invoice) upsertInvoiceInFirestore(res.invoice).catch(() => {});
+    return res;
   },
 
   async sendInvoiceReminder(id: string): Promise<{ success: boolean; status: string; error?: string }> {
@@ -504,14 +560,22 @@ export const api = {
   },
 
   async createQuotation(data: Partial<Quotation>): Promise<{ quotation: Quotation }> {
-    return request('/api/quotations', {
+    const res = await request<{ quotation: Quotation }>('/api/quotations', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    if (res.quotation) upsertQuotationInFirestore(res.quotation).catch(() => {});
+    return res;
   },
 
   async convertQuotationToInvoice(id: string): Promise<{ success: boolean; invoice: Invoice; quotation: Quotation }> {
-    return request(`/api/quotations/${id}/convert-to-invoice`, { method: 'POST' });
+    const res = await request<{ success: boolean; invoice: Invoice; quotation: Quotation }>(
+      `/api/quotations/${id}/convert-to-invoice`,
+      { method: 'POST' }
+    );
+    if (res.invoice) upsertInvoiceInFirestore(res.invoice).catch(() => {});
+    if (res.quotation) upsertQuotationInFirestore(res.quotation).catch(() => {});
+    return res;
   },
 
   // Payments
@@ -520,21 +584,27 @@ export const api = {
   },
 
   async recordPayment(paymentData: Partial<Payment>): Promise<{ payment: Payment }> {
-    return request('/api/payments', {
+    const res = await request<{ payment: Payment }>('/api/payments', {
       method: 'POST',
       body: JSON.stringify(paymentData),
     });
+    if (res.payment) upsertPaymentInFirestore(res.payment).catch(() => {});
+    return res;
   },
 
   async confirmPayment(id: string): Promise<{ success: boolean; payment: Payment }> {
-    return request(`/api/payments/${id}/confirm`, { method: 'POST' });
+    const res = await request<{ success: boolean; payment: Payment }>(`/api/payments/${id}/confirm`, { method: 'POST' });
+    if (res.payment) upsertPaymentInFirestore(res.payment).catch(() => {});
+    return res;
   },
 
   async reversePayment(id: string, reason: string): Promise<{ success: boolean; payment: Payment }> {
-    return request(`/api/payments/${id}/reverse`, {
+    const res = await request<{ success: boolean; payment: Payment }>(`/api/payments/${id}/reverse`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });
+    if (res.payment) upsertPaymentInFirestore(res.payment).catch(() => {});
+    return res;
   },
 
   // Messaging & Templates
@@ -578,6 +648,24 @@ export const api = {
     results: Array<{ phone: string; status: string; messageId?: string; error?: string }>;
   }> {
     return request('/api/messages/send-bulk', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async recordEmailLog(data: {
+    recipient: string;
+    subject: string;
+    content: string;
+    customerId?: string;
+    customerName?: string;
+    messageType?: string;
+    status: 'sent' | 'delivered' | 'failed';
+    providerReference?: string;
+    errorDetails?: string;
+    domainId?: string;
+  }): Promise<{ success: boolean; log: MessageLog }> {
+    return request('/api/messages/log-email', {
       method: 'POST',
       body: JSON.stringify(data),
     });

@@ -1,0 +1,397 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Primitives
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'getahunamanueal0@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // 3. Entity Validation Blueprints (Anti-Update-Gap)
+    function isValidAdmin(data) {
+      return data.keys().hasAll([
+          'id', 'uid', 'username', 'email', 'fullName',
+          'role', 'isPrimary', 'mfaEnabled', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'uid', 'username', 'email', 'fullName',
+          'role', 'isPrimary', 'mfaEnabled', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        data.uid == request.auth.uid &&
+        data.username is string && data.username.size() >= 2 && data.username.size() <= 64 &&
+        data.email is string && data.email.size() >= 5 && data.email.size() <= 128 &&
+        data.fullName is string && data.fullName.size() >= 1 && data.fullName.size() <= 128 &&
+        data.role is string && data.role.size() <= 32 && data.role in ['super_admin', 'admin'] &&
+        data.isPrimary is bool &&
+        data.mfaEnabled is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCustomer(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'businessName', 'contactPerson', 'phone',
+          'email', 'billingAddress', 'notes', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'businessName', 'contactPerson', 'phone',
+          'email', 'billingAddress', 'notes', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        data.ownerId == request.auth.uid &&
+        data.businessName is string && data.businessName.size() >= 1 && data.businessName.size() <= 200 &&
+        data.contactPerson is string && data.contactPerson.size() <= 150 &&
+        data.phone is string && data.phone.size() <= 40 &&
+        data.email is string && data.email.size() <= 150 &&
+        data.billingAddress is string && data.billingAddress.size() <= 500 &&
+        data.notes is string && data.notes.size() <= 4000 &&
+        data.status is string && data.status.size() <= 32 && data.status in ['active', 'archived'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDomain(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'customerId', 'domainName', 'registrationDate',
+          'expirationDate', 'renewalPrice', 'registrationPeriodYears',
+          'registrar', 'status', 'notes', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'customerId', 'domainName', 'registrationDate',
+          'expirationDate', 'renewalPrice', 'registrationPeriodYears',
+          'registrar', 'status', 'notes', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.customerId) &&
+        data.domainName is string && data.domainName.size() >= 3 && data.domainName.size() <= 253 &&
+        data.registrationDate is string && data.registrationDate.size() <= 32 &&
+        data.expirationDate is string && data.expirationDate.size() <= 32 &&
+        data.renewalPrice is number && data.renewalPrice >= 0 &&
+        data.registrationPeriodYears is number && data.registrationPeriodYears >= 1 && data.registrationPeriodYears <= 10 &&
+        data.registrar is string && data.registrar.size() <= 120 &&
+        data.status is string && data.status.size() <= 32 &&
+        data.status in ['active', 'expiring_soon', 'expired', 'renewed', 'cancelled'] &&
+        data.notes is string && data.notes.size() <= 4000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidInvoice(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'customerId', 'issueDate', 'dueDate', 'currency',
+          'subtotal', 'taxRate', 'taxAmount', 'discountAmount', 'total',
+          'paymentInstructions', 'terms', 'notes', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'customerId', 'issueDate', 'dueDate', 'currency',
+          'subtotal', 'taxRate', 'taxAmount', 'discountAmount', 'total',
+          'paymentInstructions', 'terms', 'notes', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.customerId) &&
+        data.issueDate is string && data.issueDate.size() <= 32 &&
+        data.dueDate is string && data.dueDate.size() <= 32 &&
+        data.currency is string && data.currency.size() >= 2 && data.currency.size() <= 10 &&
+        data.subtotal is number && data.subtotal >= 0 &&
+        data.taxRate is number && data.taxRate >= 0 && data.taxRate <= 100 &&
+        data.taxAmount is number && data.taxAmount >= 0 &&
+        data.discountAmount is number && data.discountAmount >= 0 &&
+        data.total is number && data.total >= 0 &&
+        data.paymentInstructions is string && data.paymentInstructions.size() <= 2000 &&
+        data.terms is string && data.terms.size() <= 2000 &&
+        data.notes is string && data.notes.size() <= 4000 &&
+        data.status is string && data.status.size() <= 32 &&
+        data.status in ['draft', 'unpaid', 'partially_paid', 'paid', 'overdue', 'cancelled'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidQuotation(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'customerId', 'issueDate', 'validUntil', 'currency',
+          'subtotal', 'taxRate', 'taxAmount', 'discountAmount', 'total',
+          'paymentInstructions', 'terms', 'notes', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'customerId', 'issueDate', 'validUntil', 'currency',
+          'subtotal', 'taxRate', 'taxAmount', 'discountAmount', 'total',
+          'paymentInstructions', 'terms', 'notes', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.customerId) &&
+        data.issueDate is string && data.issueDate.size() <= 32 &&
+        data.validUntil is string && data.validUntil.size() <= 32 &&
+        data.currency is string && data.currency.size() >= 2 && data.currency.size() <= 10 &&
+        data.subtotal is number && data.subtotal >= 0 &&
+        data.taxRate is number && data.taxRate >= 0 && data.taxRate <= 100 &&
+        data.taxAmount is number && data.taxAmount >= 0 &&
+        data.discountAmount is number && data.discountAmount >= 0 &&
+        data.total is number && data.total >= 0 &&
+        data.paymentInstructions is string && data.paymentInstructions.size() <= 2000 &&
+        data.terms is string && data.terms.size() <= 2000 &&
+        data.notes is string && data.notes.size() <= 4000 &&
+        data.status is string && data.status.size() <= 32 &&
+        data.status in ['draft', 'sent', 'accepted', 'rejected', 'expired'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'customerId', 'invoiceId', 'amount', 'currency',
+          'paymentDate', 'paymentMethod', 'referenceNumber', 'notes',
+          'recordedBy', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'customerId', 'invoiceId', 'amount', 'currency',
+          'paymentDate', 'paymentMethod', 'referenceNumber', 'notes',
+          'recordedBy', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        data.ownerId == request.auth.uid &&
+        isValidId(data.customerId) &&
+        data.invoiceId is string && data.invoiceId.size() <= 128 &&
+        data.amount is number && data.amount >= 0 &&
+        data.currency is string && data.currency.size() >= 2 && data.currency.size() <= 10 &&
+        data.paymentDate is string && data.paymentDate.size() <= 32 &&
+        data.paymentMethod is string && data.paymentMethod.size() <= 32 &&
+        data.paymentMethod in ['bank_transfer', 'cash', 'telebirr', 'cbe_birr', 'check', 'other'] &&
+        data.referenceNumber is string && data.referenceNumber.size() <= 128 &&
+        data.notes is string && data.notes.size() <= 4000 &&
+        data.recordedBy is string && data.recordedBy.size() <= 128 &&
+        data.status is string && data.status.size() <= 32 &&
+        data.status in ['pending', 'confirmed', 'failed', 'reversed'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidWorkspaceSync(data) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'version', 'updatedBy',
+          'customersCount', 'domainsCount', 'invoicesCount',
+          'quotationsCount', 'paymentsCount', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'ownerId', 'version', 'updatedBy',
+          'customersCount', 'domainsCount', 'invoicesCount',
+          'quotationsCount', 'paymentsCount', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        data.ownerId == request.auth.uid &&
+        data.version is number && data.version >= 1 &&
+        data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
+        data.customersCount is number && data.customersCount >= 0 &&
+        data.domainsCount is number && data.domainsCount >= 0 &&
+        data.invoicesCount is number && data.invoicesCount >= 0 &&
+        data.quotationsCount is number && data.quotationsCount >= 0 &&
+        data.paymentsCount is number && data.paymentsCount >= 0 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // 4. Collection Match Blocks
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (existing().uid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(adminId) && isValidAdmin(incoming()) &&
+        adminId == request.auth.uid &&
+        incoming().id == adminId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() && isValidId(adminId) && isValidAdmin(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().uid == existing().uid &&
+        incoming().role == existing().role &&
+        incoming().isPrimary == existing().isPrimary &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (existing().uid == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['fullName', 'mfaEnabled', 'updatedAt']))
+        );
+      allow delete: if isSignedIn() && isValidId(adminId) && isAdmin() && existing().isPrimary == false;
+    }
+
+    match /customers/{customerId} {
+      allow get: if isSignedIn() && isValidId(customerId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(customerId) && isValidCustomer(incoming()) &&
+        incoming().id == customerId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(customerId) && isValidCustomer(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'businessName', 'contactPerson', 'phone', 'email',
+              'billingAddress', 'notes', 'status', 'updatedAt'
+            ]))
+        );
+      allow delete: if isSignedIn() && isValidId(customerId) && (existing().ownerId == request.auth.uid || isAdmin());
+    }
+
+    match /domains/{domainId} {
+      allow get: if isSignedIn() && isValidId(domainId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(domainId) && isValidDomain(incoming()) &&
+        incoming().id == domainId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/customers/$(incoming().customerId));
+      allow update: if isSignedIn() && isValidId(domainId) && isValidDomain(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().customerId == existing().customerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().status != 'cancelled' || isAdmin()) && (
+          isAdmin() ||
+          (existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'domainName', 'registrationDate', 'expirationDate',
+              'renewalPrice', 'registrationPeriodYears', 'registrar',
+              'status', 'notes', 'updatedAt'
+            ]))
+        );
+      allow delete: if isSignedIn() && isValidId(domainId) && (existing().ownerId == request.auth.uid || isAdmin());
+    }
+
+    match /invoices/{invoiceId} {
+      allow get: if isSignedIn() && isValidId(invoiceId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(invoiceId) && isValidInvoice(incoming()) &&
+        incoming().id == invoiceId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/customers/$(incoming().customerId));
+      allow update: if isSignedIn() && isValidId(invoiceId) && isValidInvoice(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().customerId == existing().customerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().status != 'cancelled' || isAdmin()) && (
+          isAdmin() ||
+          (existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'dueDate', 'subtotal', 'taxRate', 'taxAmount',
+              'discountAmount', 'total', 'paymentInstructions',
+              'terms', 'notes', 'status', 'updatedAt'
+            ]))
+        );
+      allow delete: if isSignedIn() && isValidId(invoiceId) && (existing().ownerId == request.auth.uid || isAdmin());
+    }
+
+    match /quotations/{quotationId} {
+      allow get: if isSignedIn() && isValidId(quotationId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(quotationId) && isValidQuotation(incoming()) &&
+        incoming().id == quotationId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/customers/$(incoming().customerId));
+      allow update: if isSignedIn() && isValidId(quotationId) && isValidQuotation(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().customerId == existing().customerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().status != 'rejected' || isAdmin()) && (
+          isAdmin() ||
+          (existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'validUntil', 'subtotal', 'taxRate', 'taxAmount',
+              'discountAmount', 'total', 'paymentInstructions',
+              'terms', 'notes', 'status', 'updatedAt'
+            ]))
+        );
+      allow delete: if isSignedIn() && isValidId(quotationId) && (existing().ownerId == request.auth.uid || isAdmin());
+    }
+
+    match /payments/{paymentId} {
+      allow get: if isSignedIn() && isValidId(paymentId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(paymentId) && isValidPayment(incoming()) &&
+        incoming().id == paymentId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/customers/$(incoming().customerId));
+      allow update: if isSignedIn() && isValidId(paymentId) && isValidPayment(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().customerId == existing().customerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().status != 'reversed' || isAdmin()) && (
+          isAdmin() ||
+          (existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'notes', 'referenceNumber', 'updatedAt'
+            ]))
+        );
+      allow delete: if isSignedIn() && isValidId(paymentId) && isAdmin();
+    }
+
+    match /workspaces/{workspaceId} {
+      allow get: if isSignedIn() && isValidId(workspaceId) && (existing().ownerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(workspaceId) && isValidWorkspaceSync(incoming()) &&
+        incoming().id == workspaceId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(workspaceId) && isValidWorkspaceSync(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (existing().ownerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'version', 'updatedBy', 'customersCount', 'domainsCount',
+              'invoicesCount', 'quotationsCount', 'paymentsCount', 'updatedAt'
+            ]))
+        );
+      allow delete: if isSignedIn() && isValidId(workspaceId) && isAdmin();
+    }
+  }
+}
