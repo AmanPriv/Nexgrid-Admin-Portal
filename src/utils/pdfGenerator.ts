@@ -93,6 +93,54 @@ export interface PaymentQrContext {
 }
 
 /**
+ * Ensures line item totals, subtotal, taxAmount, total, and remainingBalance
+ * are always accurately calculated from the document's line items.
+ */
+export function recalculateDocumentTotals<T extends Invoice | Quotation>(doc: T): T {
+  if (!doc || typeof doc !== 'object') return doc;
+  const rawItems = Array.isArray(doc.items) ? doc.items : [];
+  const cleanItems = rawItems.map((it, idx) => {
+    const qty = Number(it.quantity) > 0 ? Number(it.quantity) : 1;
+    const unitPrice = Number(it.unitPrice) || 0;
+    const rawTotal = Number(it.total) || 0;
+    const computedItemTotal = unitPrice > 0 ? qty * unitPrice : rawTotal;
+    return {
+      ...it,
+      id: it.id || `item-${idx + 1}`,
+      quantity: qty,
+      unitPrice: unitPrice > 0 ? unitPrice : qty > 0 ? computedItemTotal / qty : 0,
+      total: computedItemTotal,
+    };
+  });
+
+  const itemsSum = cleanItems.reduce((sum, it) => sum + (Number(it.total) || 0), 0);
+  const subtotal = itemsSum > 0 ? itemsSum : Math.max(0, Number(doc.subtotal) || 0);
+  const discountAmount = Math.max(0, Number(doc.discountAmount) || 0);
+  const taxRate = Math.max(0, Number(doc.taxRate) || 0);
+  const taxable = Math.max(0, subtotal - discountAmount);
+  const taxAmount = taxRate > 0 ? (taxable * taxRate) / 100 : 0;
+  const total = Math.max(0, taxable + taxAmount);
+
+  const normalized: any = {
+    ...doc,
+    items: cleanItems,
+    subtotal,
+    discountAmount,
+    taxRate,
+    taxAmount,
+    total,
+  };
+
+  if ('remainingBalance' in normalized || 'totalPaid' in normalized || 'dueDate' in normalized) {
+    const paid = Math.max(0, Number((normalized as Invoice).totalPaid) || 0);
+    normalized.totalPaid = paid;
+    normalized.remainingBalance = Math.max(0, total - paid);
+  }
+
+  return normalized as T;
+}
+
+/**
  * Builds the structured scan-to-pay payload encoded inside Invoice and Quotation QR codes.
  */
 export function buildPaymentQrPayload(
@@ -288,10 +336,11 @@ function drawBankingDetailsBox(
 }
 
 export function generateInvoicePdf(
-  invoice: Invoice,
+  rawInvoice: Invoice,
   customer?: Customer,
   settings?: AppSettings['general']
 ): jsPDF {
+  const invoice = recalculateDocumentTotals(rawInvoice);
   const company = resolveCompanyProfile(settings);
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -530,10 +579,11 @@ export function generateInvoicePdf(
 }
 
 export function generateQuotationPdf(
-  quotation: Quotation,
+  rawQuotation: Quotation,
   customer?: Customer,
   settings?: AppSettings['general']
 ): jsPDF {
+  const quotation = recalculateDocumentTotals(rawQuotation);
   const company = resolveCompanyProfile(settings);
   const doc = new jsPDF({
     orientation: 'portrait',

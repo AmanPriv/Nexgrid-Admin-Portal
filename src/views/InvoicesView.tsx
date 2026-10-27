@@ -27,6 +27,7 @@ import {
   generateQuotationPdf,
   resolveCompanyProfile,
   DEFAULT_COMPANY_PROFILE,
+  recalculateDocumentTotals,
 } from '../utils/pdfGenerator.ts';
 import { PaymentQrCode } from '../components/PaymentQrCode.tsx';
 import { EmailConfirmationModal } from '../components/EmailConfirmationModal.tsx';
@@ -106,7 +107,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     title: 'Send Document via Gmail',
   });
 
-  const handleOpenEmailInvoice = (inv: Invoice) => {
+  const handleOpenEmailInvoice = (rawInv: Invoice) => {
+    const inv = recalculateDocumentTotals(rawInv);
     const cust = customers.find((c) => c.id === inv.customerId);
     const email = (inv.customerEmail || cust?.email || '').trim();
     if (!email) return;
@@ -123,7 +125,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     });
   };
 
-  const handleOpenEmailQuotation = (q: Quotation) => {
+  const handleOpenEmailQuotation = (rawQuo: Quotation) => {
+    const q = recalculateDocumentTotals(rawQuo);
     const cust = customers.find((c) => c.id === q.customerId);
     const email = (q.customerEmail || cust?.email || '').trim();
     if (!email) return;
@@ -149,8 +152,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         api.getCustomers('', 'active'),
         api.getSettings().catch(() => null),
       ]);
-      setInvoices(invData.invoices);
-      setQuotations(quoData.quotations);
+      setInvoices((invData.invoices || []).map((i) => recalculateDocumentTotals(i)));
+      setQuotations((quoData.quotations || []).map((q) => recalculateDocumentTotals(q)));
       setCustomers(custData.customers);
       if (settingsData?.settings?.general) {
         const resolved = resolveCompanyProfile(settingsData.settings.general);
@@ -230,9 +233,23 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   };
 
   const calcInvoiceTotals = () => {
-    const subtotal = invItems.reduce((sum, it) => sum + (it.total || 0), 0);
+    const subtotal = invItems.reduce(
+      (sum, it) => sum + ((Number(it.quantity) || 1) * (Number(it.unitPrice) || 0)),
+      0
+    );
     const taxable = Math.max(0, subtotal - (Number(invDiscount) || 0));
     const taxAmount = (taxable * (Number(invTaxRate) || 0)) / 100;
+    const total = taxable + taxAmount;
+    return { subtotal, taxAmount, total };
+  };
+
+  const calcQuotationTotals = () => {
+    const subtotal = quoItems.reduce(
+      (sum, it) => sum + ((Number(it.quantity) || 1) * (Number(it.unitPrice) || 0)),
+      0
+    );
+    const taxable = Math.max(0, subtotal - (Number(quoDiscount) || 0));
+    const taxAmount = (taxable * (Number(quoTaxRate) || 0)) / 100;
     const total = taxable + taxAmount;
     return { subtotal, taxAmount, total };
   };
@@ -243,13 +260,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     setSavingInvoice(true);
 
     try {
+      const { subtotal, taxAmount, total } = calcInvoiceTotals();
       const res = await api.createInvoice({
         customerId: invCustomerId,
         issueDate: invIssueDate,
         dueDate: invDueDate,
         items: invItems,
+        subtotal,
         taxRate: Number(invTaxRate),
+        taxAmount,
         discountAmount: Number(invDiscount),
+        total,
         paymentInstructions: invNotes,
       });
       setShowInvoiceModal(false);
@@ -271,13 +292,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     setSavingQuotation(true);
 
     try {
+      const { subtotal, taxAmount, total } = calcQuotationTotals();
       const res = await api.createQuotation({
         customerId: quoCustomerId,
         issueDate: quoIssueDate,
         validUntil: quoValidUntil,
         items: quoItems,
+        subtotal,
         taxRate: Number(quoTaxRate),
+        taxAmount,
         discountAmount: Number(quoDiscount),
+        total,
         paymentInstructions: quoPaymentInstructions,
         terms: quoNotes,
       });
@@ -972,9 +997,24 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               </div>
 
               <div>
-                <label className="block font-semibold text-slate-800 mb-1.5">
-                  Proposed Services / Line Items
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-semibold text-slate-800">
+                    Proposed Services / Line Items
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setQuoItems([
+                        ...quoItems,
+                        { id: `item-${Date.now()}`, description: '', quantity: 1, unitPrice: 0, total: 0 },
+                      ])
+                    }
+                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-semibold"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Item</span>
+                  </button>
+                </div>
                 <div className="space-y-2 border border-slate-200 rounded-lg p-3 bg-slate-50/50">
                   {quoItems.map((item, idx) => (
                     <div key={item.id} className="flex items-center gap-2">
@@ -985,7 +1025,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         value={item.description}
                         onChange={(e) => {
                           const next = [...quoItems];
-                          next[idx].description = e.target.value;
+                          next[idx] = { ...next[idx], description: e.target.value };
                           setQuoItems(next);
                         }}
                         className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded bg-white text-xs"
@@ -997,8 +1037,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         value={item.quantity}
                         onChange={(e) => {
                           const next = [...quoItems];
-                          next[idx].quantity = Number(e.target.value);
-                          next[idx].total = next[idx].quantity * next[idx].unitPrice;
+                          const qty = Number(e.target.value) || 0;
+                          const price = Number(next[idx].unitPrice) || 0;
+                          next[idx] = { ...next[idx], quantity: qty, total: qty * price };
                           setQuoItems(next);
                         }}
                         className="w-16 px-2 py-1.5 border border-slate-300 rounded bg-white font-mono text-center text-xs"
@@ -1010,8 +1051,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         value={item.unitPrice}
                         onChange={(e) => {
                           const next = [...quoItems];
-                          next[idx].unitPrice = Number(e.target.value);
-                          next[idx].total = next[idx].quantity * next[idx].unitPrice;
+                          const price = Number(e.target.value) || 0;
+                          const qty = Number(next[idx].quantity) || 1;
+                          next[idx] = { ...next[idx], unitPrice: price, total: qty * price };
                           setQuoItems(next);
                         }}
                         className="w-24 px-2 py-1.5 border border-slate-300 rounded bg-white font-mono text-right text-xs"
@@ -1019,51 +1061,109 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       <div className="w-24 font-mono font-bold text-right text-slate-900 text-xs">
                         {item.total.toLocaleString()} ETB
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (quoItems.length <= 1) return;
+                          setQuoItems(quoItems.filter((_, i) => i !== idx));
+                        }}
+                        disabled={quoItems.length <= 1}
+                        className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">
-                    Banking & Settlement Details (Included on Quotation)
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={quoPaymentInstructions}
-                    onChange={(e) => setQuoPaymentInstructions(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-slate-700 mb-1">
-                    Quotation Terms & Validity Note
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={quoNotes}
-                    onChange={(e) => setQuoNotes(e.target.value)}
-                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <PaymentQrCode
-                    settings={companySettings}
-                    context={{
-                      documentType: 'QUOTATION',
-                      customerName: customers.find((c) => c.id === quoCustomerId)?.businessName,
-                      amount: quoItems.reduce((s, it) => s + (it.total || 0), 0) * (1 + (Number(quoTaxRate) || 0) / 100),
-                      currency: companySettings?.currency || 'ETB',
-                      dueOrValidDate: quoValidUntil,
-                      customInstructions: quoPaymentInstructions,
-                    }}
-                    size={76}
-                    compact
-                    showActions={false}
-                  />
-                </div>
-              </div>
+              {(() => {
+                const { subtotal, taxAmount, total } = calcQuotationTotals();
+                return (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block font-medium text-slate-700 mb-1">
+                          Banking & Settlement Details (Included on Quotation)
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={quoPaymentInstructions}
+                          onChange={(e) => setQuoPaymentInstructions(e.target.value)}
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-medium text-slate-700 mb-1">
+                          Quotation Terms & Validity Note
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={quoNotes}
+                          onChange={(e) => setQuoNotes(e.target.value)}
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-lg border border-slate-200 bg-slate-50 space-y-1.5 flex flex-col justify-between">
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-slate-600">
+                          <span>Subtotal:</span>
+                          <span className="font-mono">{subtotal.toLocaleString()} ETB</span>
+                        </div>
+                        <div className="flex items-center justify-between text-slate-600">
+                          <span>Discount:</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={quoDiscount}
+                            onChange={(e) => setQuoDiscount(Number(e.target.value))}
+                            className="w-20 px-1 py-0.5 border border-slate-300 rounded text-right font-mono text-xs bg-white"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between text-slate-600">
+                          <span>VAT Rate (%):</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={quoTaxRate}
+                            onChange={(e) => setQuoTaxRate(Number(e.target.value))}
+                            className="w-20 px-1 py-0.5 border border-slate-300 rounded text-right font-mono text-xs bg-white"
+                          />
+                        </div>
+                        <div className="flex justify-between text-slate-600">
+                          <span>Tax Amount:</span>
+                          <span className="font-mono">+{taxAmount.toLocaleString()} ETB</span>
+                        </div>
+                      </div>
+                      <div className="flex justify-between font-bold text-slate-900 border-t border-slate-200 pt-1.5 text-sm">
+                        <span>Estimated Total:</span>
+                        <span className="font-mono text-blue-600">{total.toLocaleString()} ETB</span>
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-2">
+                      <PaymentQrCode
+                        settings={companySettings}
+                        context={{
+                          documentType: 'QUOTATION',
+                          customerName: customers.find((c) => c.id === quoCustomerId)?.businessName,
+                          amount: total,
+                          currency: companySettings?.currency || 'ETB',
+                          dueOrValidDate: quoValidUntil,
+                          customInstructions: quoPaymentInstructions,
+                        }}
+                        size={76}
+                        compact
+                        showActions={false}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
                 <button
@@ -1089,9 +1189,12 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       {/* Official Document Preview Modal (Applies Company Profile & Banking Details) */}
       {previewDoc && (() => {
         const company = resolveCompanyProfile(companySettings);
-        const docData = previewDoc.data;
+        const docData = recalculateDocumentTotals(previewDoc.data);
         const cust = previewDoc.customer;
         const isInvoice = previewDoc.type === 'invoice';
+        const showSecondaryBank =
+          Boolean(company.secondaryBankDetails) &&
+          !company.secondaryBankDetails.includes(company.telebirrNumber);
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs">
             <div className="bg-white rounded-xl max-w-3xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden text-slate-900">
@@ -1223,11 +1326,11 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 </table>
 
                 {/* Summary, Banking Details & Scan-to-Pay QR Code */}
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-stretch">
-                  <div className="md:col-span-5 p-3.5 rounded-xl bg-blue-50/60 border border-blue-200 flex flex-col justify-between space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-stretch">
+                  <div className="md:col-span-5 min-w-0 p-3.5 rounded-xl bg-blue-50/60 border border-blue-200 flex flex-col justify-between space-y-2">
                     <div className="space-y-1.5">
                       <div className="font-bold text-slate-900 uppercase text-[11px] flex items-center gap-1.5">
-                        <Building2 className="w-3.5 h-3.5 text-blue-600" />
+                        <Building2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                         <span>Banking & Payment Settlement Details</span>
                       </div>
                       <div className="text-slate-700 space-y-1 text-[11px]">
@@ -1245,7 +1348,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                           Telebirr / Mobile Money:{' '}
                           <strong className="font-mono">{company.telebirrNumber}</strong>
                         </div>
-                        {company.secondaryBankDetails && (
+                        {showSecondaryBank && (
                           <div className="text-slate-600 pt-0.5">{company.secondaryBankDetails}</div>
                         )}
                       </div>
@@ -1256,7 +1359,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     </div>
                   </div>
 
-                  <div className="md:col-span-3 flex items-center justify-center">
+                  <div className="md:col-span-3 min-w-0 flex items-stretch justify-center">
                     <PaymentQrCode
                       settings={companySettings}
                       context={{
@@ -1275,15 +1378,15 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                           : (docData as Quotation).validUntil,
                         customInstructions: docData.paymentInstructions,
                       }}
-                      size={112}
+                      size={104}
                     />
                   </div>
 
-                  <div className="md:col-span-4 p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between space-y-2">
+                  <div className="md:col-span-4 min-w-0 p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col justify-between space-y-2">
                     <div className="space-y-1.5">
                       <div className="flex justify-between text-slate-600">
                         <span>Subtotal:</span>
-                        <span className="font-mono">
+                        <span className="font-mono font-semibold text-slate-900">
                           {docData.subtotal.toLocaleString()} {docData.currency}
                         </span>
                       </div>

@@ -66,8 +66,8 @@ export const PaymentQrCode: React.FC<PaymentQrCodeProps> = ({
 
   return (
     <div
-      className={`flex ${
-        compact ? 'flex-row items-center gap-3' : 'flex-col items-center'
+      className={`flex w-full max-w-full min-w-0 overflow-hidden ${
+        compact ? 'flex-row items-center gap-3' : 'flex-col items-center justify-between'
       } bg-white rounded-xl border border-slate-200 p-3 shadow-2xs`}
     >
       <div className="relative bg-white p-1.5 rounded-lg border border-slate-200 shrink-0">
@@ -76,7 +76,7 @@ export const PaymentQrCode: React.FC<PaymentQrCodeProps> = ({
           height={size}
           viewBox={`0 0 ${totalModules} ${totalModules}`}
           shapeRendering="crispEdges"
-          className="block"
+          className="block max-w-full h-auto"
           aria-label="Scan to Pay QR Code"
         >
           <rect width={totalModules} height={totalModules} fill="#ffffff" />
@@ -97,7 +97,7 @@ export const PaymentQrCode: React.FC<PaymentQrCodeProps> = ({
         </svg>
       </div>
 
-      <div className={compact ? 'flex-1 min-w-0 space-y-1' : 'text-center mt-2 space-y-1 w-full'}>
+      <div className={compact ? 'flex-1 min-w-0 space-y-1' : 'text-center mt-2 space-y-1 w-full min-w-0'}>
         <div
           className={`inline-flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wider text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded ${
             compact ? '' : 'mx-auto'
@@ -107,16 +107,16 @@ export const PaymentQrCode: React.FC<PaymentQrCodeProps> = ({
           <span>Scan to Pay</span>
         </div>
 
-        <div className="text-[11px] font-bold text-slate-900 truncate">
+        <div className="text-[11px] font-bold text-slate-900 truncate max-w-full">
           {company.bankName}
         </div>
-        <div className="text-[10px] font-mono text-slate-600 truncate">
+        <div className="text-[10px] font-mono text-slate-600 truncate max-w-full">
           A/C: <strong className="text-slate-900">{company.bankAccountNumber}</strong> • Telebirr:{' '}
           <strong className="text-slate-900">{company.telebirrNumber}</strong>
         </div>
 
         {showActions && (
-          <div className={`flex items-center gap-1.5 pt-1 ${compact ? '' : 'justify-center'}`}>
+          <div className={`flex flex-wrap items-center gap-1.5 pt-1 ${compact ? '' : 'justify-center'}`}>
             <button
               type="button"
               onClick={handleDownloadQrPng}

@@ -637,6 +637,20 @@ export async function upsertInvoiceInFirestore(invoice: Invoice): Promise<void> 
   const path = `invoices/${docId}`;
   const ref = doc(db, 'invoices', docId);
 
+  const itemsSum = Array.isArray(invoice.items)
+    ? invoice.items.reduce(
+        (s, it) =>
+          s + (Number(it.total) || (Number(it.quantity) || 1) * (Number(it.unitPrice) || 0)),
+        0
+      )
+    : 0;
+  const subtotal = itemsSum > 0 ? itemsSum : Math.max(0, Number(invoice.subtotal) || 0);
+  const discountAmount = Math.max(0, Number(invoice.discountAmount) || 0);
+  const taxRate = Math.min(100, Math.max(0, Number(invoice.taxRate) || 0));
+  const taxable = Math.max(0, subtotal - discountAmount);
+  const taxAmount = taxRate > 0 ? (taxable * taxRate) / 100 : 0;
+  const total = Math.max(0, taxable + taxAmount);
+
   try {
     const snap = await getDoc(ref);
     const validStatus = ['draft', 'unpaid', 'partially_paid', 'paid', 'overdue', 'cancelled'].includes(invoice.status)
@@ -651,11 +665,11 @@ export async function upsertInvoiceInFirestore(invoice: Invoice): Promise<void> 
         issueDate: clampStr(invoice.issueDate, 32, new Date().toISOString().slice(0, 10)),
         dueDate: clampStr(invoice.dueDate, 32, new Date().toISOString().slice(0, 10)),
         currency: clampStr(invoice.currency, 10, 'ETB'),
-        subtotal: Math.max(0, Number(invoice.subtotal) || 0),
-        taxRate: Math.min(100, Math.max(0, Number(invoice.taxRate) || 0)),
-        taxAmount: Math.max(0, Number(invoice.taxAmount) || 0),
-        discountAmount: Math.max(0, Number(invoice.discountAmount) || 0),
-        total: Math.max(0, Number(invoice.total) || 0),
+        subtotal,
+        taxRate,
+        taxAmount,
+        discountAmount,
+        total,
         paymentInstructions: clampStr(invoice.paymentInstructions, 2000, ''),
         terms: clampStr(invoice.terms, 2000, ''),
         notes: clampStr(invoice.notes, 4000, ''),
@@ -666,11 +680,11 @@ export async function upsertInvoiceInFirestore(invoice: Invoice): Promise<void> 
     } else {
       await updateDoc(ref, {
         dueDate: clampStr(invoice.dueDate, 32, new Date().toISOString().slice(0, 10)),
-        subtotal: Math.max(0, Number(invoice.subtotal) || 0),
-        taxRate: Math.min(100, Math.max(0, Number(invoice.taxRate) || 0)),
-        taxAmount: Math.max(0, Number(invoice.taxAmount) || 0),
-        discountAmount: Math.max(0, Number(invoice.discountAmount) || 0),
-        total: Math.max(0, Number(invoice.total) || 0),
+        subtotal,
+        taxRate,
+        taxAmount,
+        discountAmount,
+        total,
         paymentInstructions: clampStr(invoice.paymentInstructions, 2000, ''),
         terms: clampStr(invoice.terms, 2000, ''),
         notes: clampStr(invoice.notes, 4000, ''),
@@ -691,6 +705,20 @@ export async function upsertQuotationInFirestore(quotation: Quotation): Promise<
   const path = `quotations/${docId}`;
   const ref = doc(db, 'quotations', docId);
 
+  const itemsSum = Array.isArray(quotation.items)
+    ? quotation.items.reduce(
+        (s, it) =>
+          s + (Number(it.total) || (Number(it.quantity) || 1) * (Number(it.unitPrice) || 0)),
+        0
+      )
+    : 0;
+  const subtotal = itemsSum > 0 ? itemsSum : Math.max(0, Number(quotation.subtotal) || 0);
+  const discountAmount = Math.max(0, Number(quotation.discountAmount) || 0);
+  const taxRate = Math.min(100, Math.max(0, Number(quotation.taxRate) || 0));
+  const taxable = Math.max(0, subtotal - discountAmount);
+  const taxAmount = taxRate > 0 ? (taxable * taxRate) / 100 : 0;
+  const total = Math.max(0, taxable + taxAmount);
+
   try {
     const snap = await getDoc(ref);
     const validStatus = ['draft', 'sent', 'accepted', 'rejected', 'expired'].includes(quotation.status)
@@ -705,11 +733,11 @@ export async function upsertQuotationInFirestore(quotation: Quotation): Promise<
         issueDate: clampStr(quotation.issueDate, 32, new Date().toISOString().slice(0, 10)),
         validUntil: clampStr(quotation.validUntil, 32, new Date().toISOString().slice(0, 10)),
         currency: clampStr(quotation.currency, 10, 'ETB'),
-        subtotal: Math.max(0, Number(quotation.subtotal) || 0),
-        taxRate: Math.min(100, Math.max(0, Number(quotation.taxRate) || 0)),
-        taxAmount: Math.max(0, Number(quotation.taxAmount) || 0),
-        discountAmount: Math.max(0, Number(quotation.discountAmount) || 0),
-        total: Math.max(0, Number(quotation.total) || 0),
+        subtotal,
+        taxRate,
+        taxAmount,
+        discountAmount,
+        total,
         paymentInstructions: clampStr(quotation.paymentInstructions, 2000, ''),
         terms: clampStr(quotation.terms, 2000, ''),
         notes: clampStr(quotation.notes, 4000, ''),
@@ -720,11 +748,11 @@ export async function upsertQuotationInFirestore(quotation: Quotation): Promise<
     } else {
       await updateDoc(ref, {
         validUntil: clampStr(quotation.validUntil, 32, new Date().toISOString().slice(0, 10)),
-        subtotal: Math.max(0, Number(quotation.subtotal) || 0),
-        taxRate: Math.min(100, Math.max(0, Number(quotation.taxRate) || 0)),
-        taxAmount: Math.max(0, Number(quotation.taxAmount) || 0),
-        discountAmount: Math.max(0, Number(quotation.discountAmount) || 0),
-        total: Math.max(0, Number(quotation.total) || 0),
+        subtotal,
+        taxRate,
+        taxAmount,
+        discountAmount,
+        total,
         paymentInstructions: clampStr(quotation.paymentInstructions, 2000, ''),
         terms: clampStr(quotation.terms, 2000, ''),
         notes: clampStr(quotation.notes, 4000, ''),

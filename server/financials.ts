@@ -33,6 +33,40 @@ export function getInvoiceFinancials(invoice: Invoice, payments: Payment[]) {
   };
 }
 
+function healDocumentTotals<T extends Invoice | Quotation>(doc: T): void {
+  const rawItems = Array.isArray(doc.items) ? doc.items : [];
+  if (rawItems.length === 0) return;
+
+  let itemsSubtotal = 0;
+  for (const item of rawItems) {
+    const qty = Math.max(0, Number(item.quantity) || 0);
+    const price = Math.max(0, Number(item.unitPrice) || 0);
+    const explicitTotal = Number(item.total) || 0;
+    const lineTotal = qty * price > 0 ? Math.round(qty * price * 100) / 100 : explicitTotal;
+    item.quantity = qty || 1;
+    item.unitPrice = price || lineTotal;
+    item.total = lineTotal;
+    itemsSubtotal += lineTotal;
+  }
+  itemsSubtotal = Math.round(itemsSubtotal * 100) / 100;
+
+  if (itemsSubtotal > 0) {
+    const discountAmount = Math.max(0, Number(doc.discountAmount) || 0);
+    const taxRate = Math.max(0, Number(doc.taxRate) || 0);
+    const taxable = Math.max(0, itemsSubtotal - discountAmount);
+    const taxAmount = Math.round(taxable * (taxRate / 100) * 100) / 100;
+    const computedTotal = Math.round((taxable + taxAmount) * 100) / 100;
+
+    if ((Number(doc.subtotal) || 0) !== itemsSubtotal || (Number(doc.total) || 0) !== computedTotal) {
+      doc.subtotal = itemsSubtotal;
+      doc.discountAmount = discountAmount;
+      doc.taxRate = taxRate;
+      doc.taxAmount = taxAmount;
+      doc.total = computedTotal;
+    }
+  }
+}
+
 /**
  * Recalculates and synchronizes invoice statuses across the database
  */
@@ -40,7 +74,13 @@ export function syncInvoiceStatuses(): void {
   const db = getDb();
   const now = new Date();
 
+  for (const quote of db.quotations) {
+    healDocumentTotals(quote);
+  }
+
   for (const invoice of db.invoices) {
+    healDocumentTotals(invoice);
+
     if (invoice.status === 'cancelled' || invoice.status === 'draft') {
       continue;
     }

@@ -10,6 +10,7 @@ import {
   subscribeToFirestoreWorkspace,
   onFirebaseAuthChange,
 } from '../firebase.ts';
+import { recalculateDocumentTotals } from '../utils/pdfGenerator.ts';
 
 const STATIC_DB_KEY = 'nexgrid_cms_production_db_v2';
 const CLOUD_SYNC_META_KEY = 'nexgrid_cloud_sync_meta_v2';
@@ -116,6 +117,40 @@ function mergeById<T extends { id: string; updatedAt?: string; createdAt?: strin
   return Array.from(map.values());
 }
 
+function mergeDocumentsById<T extends { id: string; items?: any[]; subtotal?: number; total?: number; updatedAt?: string; createdAt?: string }>(
+  localArr: T[] = [],
+  remoteArr: T[] = []
+): T[] {
+  const map = new Map<string, T>();
+  for (const item of localArr) {
+    if (item && item.id) {
+      map.set(item.id, recalculateDocumentTotals(item as any) as unknown as T);
+    }
+  }
+  for (const rawRemote of remoteArr) {
+    if (!rawRemote || !rawRemote.id) continue;
+    const rItem = recalculateDocumentTotals(rawRemote as any) as unknown as T;
+    const existing = map.get(rItem.id);
+    if (!existing) {
+      map.set(rItem.id, rItem);
+    } else {
+      const tLocal = existing.updatedAt || existing.createdAt || '';
+      const tRemote = rItem.updatedAt || rItem.createdAt || '';
+      const existingItemsCount = Array.isArray(existing.items) ? existing.items.length : 0;
+      const remoteItemsCount = Array.isArray(rItem.items) ? rItem.items.length : 0;
+      const bestItems =
+        existingItemsCount > remoteItemsCount || ((existing.total || 0) > 0 && (rItem.total || 0) === 0)
+          ? existing.items
+          : rItem.items && rItem.items.length > 0
+          ? rItem.items
+          : existing.items;
+      const base = tRemote >= tLocal ? { ...existing, ...rItem, items: bestItems } : { ...rItem, ...existing, items: bestItems };
+      map.set(rItem.id, recalculateDocumentTotals(base as any) as unknown as T);
+    }
+  }
+  return Array.from(map.values());
+}
+
 export function mergeDatabaseSnapshots(localDb: any, remoteDb: any): any {
   if (!remoteDb || typeof remoteDb !== 'object') return localDb;
   if (!localDb || typeof localDb !== 'object') return remoteDb;
@@ -133,8 +168,8 @@ export function mergeDatabaseSnapshots(localDb: any, remoteDb: any): any {
     admins: mergeById(localDb.admins, remoteDb.admins),
     customers: mergeById(localDb.customers, remoteDb.customers),
     domains: mergeById(localDb.domains, remoteDb.domains),
-    invoices: mergeById(localDb.invoices, remoteDb.invoices),
-    quotations: mergeById(localDb.quotations, remoteDb.quotations),
+    invoices: mergeDocumentsById(localDb.invoices, remoteDb.invoices),
+    quotations: mergeDocumentsById(localDb.quotations, remoteDb.quotations),
     payments: mergeById(localDb.payments, remoteDb.payments),
     templates: mergeById(localDb.templates, remoteDb.templates),
     messageLogs: mergeById(localDb.messageLogs, remoteDb.messageLogs).slice(0, 300),

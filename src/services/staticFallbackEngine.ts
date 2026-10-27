@@ -11,6 +11,7 @@ import {
   AppSettings,
 } from '../types.ts';
 import { pushCloudDatabaseState, pullCloudDatabaseState } from './cloudSyncEngine.ts';
+import { recalculateDocumentTotals } from '../utils/pdfGenerator.ts';
 
 const STATIC_DB_KEY = 'nexgrid_cms_production_db_v2';
 const STATIC_SESSION_KEY = 'nexgrid_cms_active_admin_id';
@@ -219,6 +220,28 @@ function loadDb(): StaticDatabase {
     if (!Array.isArray(parsed.invoices)) parsed.invoices = [];
     if (!Array.isArray(parsed.quotations)) parsed.quotations = [];
     if (!Array.isArray(parsed.payments)) parsed.payments = [];
+
+    let totalsHealed = false;
+    parsed.invoices = parsed.invoices.map((inv) => {
+      const healed = recalculateDocumentTotals(inv);
+      if (healed.total !== inv.total || healed.subtotal !== inv.subtotal) {
+        totalsHealed = true;
+        return { ...healed, updatedAt: new Date().toISOString() };
+      }
+      return healed;
+    });
+    parsed.quotations = parsed.quotations.map((quo) => {
+      const healed = recalculateDocumentTotals(quo);
+      if (healed.total !== quo.total || healed.subtotal !== quo.subtotal) {
+        totalsHealed = true;
+        return { ...healed, updatedAt: new Date().toISOString() };
+      }
+      return healed;
+    });
+    if (totalsHealed) {
+      localStorage.setItem(STATIC_DB_KEY, JSON.stringify(parsed));
+      pushCloudDatabaseState(parsed).catch(() => {});
+    }
     if (!Array.isArray(parsed.templates)) {
       parsed.templates = defaultTemplates;
     } else {
@@ -1046,15 +1069,29 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
   // 9. Invoices, Quotations, Payments
   if (pathname === '/api/invoices' && method === 'GET') {
     return {
-      invoices: db.invoices.map((inv) => {
+      invoices: db.invoices.map((rawInv) => {
+        const inv = recalculateDocumentTotals(rawInv);
         const cust = db.customers.find((c) => c.id === inv.customerId);
+        const totalPaid = db.payments
+          .filter((p) => p.invoiceId === inv.id && p.status === 'confirmed')
+          .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const remainingBalance = Math.max(0, inv.total - totalPaid);
+        const status =
+          inv.status === 'cancelled'
+            ? 'cancelled'
+            : totalPaid >= inv.total && inv.total > 0
+            ? 'paid'
+            : totalPaid > 0
+            ? 'partially_paid'
+            : inv.status;
         return {
           ...inv,
+          status,
           customerName: cust?.businessName || 'Unknown',
           customerPhone: cust?.phone || '',
           customerEmail: cust?.email || '',
-          totalPaid: 0,
-          remainingBalance: inv.total,
+          totalPaid,
+          remainingBalance,
         };
       }),
     };
@@ -1227,6 +1264,23 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       updatedAt: new Date().toISOString(),
     };
     db.payments.push(pay);
+    if (pay.invoiceId) {
+      const targetInv = db.invoices.find((i) => i.id === pay.invoiceId);
+      if (targetInv) {
+        const healedInv = recalculateDocumentTotals(targetInv);
+        Object.assign(targetInv, healedInv);
+        const paidSum = db.payments
+          .filter((p) => p.invoiceId === targetInv.id && p.status === 'confirmed')
+          .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        targetInv.status =
+          paidSum >= targetInv.total && targetInv.total > 0
+            ? 'paid'
+            : paidSum > 0
+            ? 'partially_paid'
+            : targetInv.status;
+        targetInv.updatedAt = new Date().toISOString();
+      }
+    }
     saveDb(db);
     return { payment: pay };
   }
