@@ -84,6 +84,9 @@ export const SettingsView: React.FC = () => {
   const [autoPaymentConfirm, setAutoPaymentConfirm] = useState(true);
   const [autoDomainReminders, setAutoDomainReminders] = useState(true);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [smsSaving, setSmsSaving] = useState(false);
+  const [smsSaveSuccess, setSmsSaveSuccess] = useState(false);
+  const [smsSaveError, setSmsSaveError] = useState<string | null>(null);
 
   // Gateway Diagnostics state
   const [diagLoading, setDiagLoading] = useState(false);
@@ -222,6 +225,63 @@ export const SettingsView: React.FC = () => {
       });
     } finally {
       setDiagLoading(false);
+    }
+  };
+
+  const handleSaveSmsApi = async () => {
+    setSmsSaving(true);
+    setSmsSaveSuccess(false);
+    setSmsSaveError(null);
+    try {
+      const parsedDays = reminderDaysStr
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !isNaN(n) && n > 0);
+
+      await api.updateSettings({
+        general: {
+          businessName,
+          businessPhone,
+          businessContact: businessPhone,
+          businessEmail,
+          businessAddress,
+          tinNumber,
+          currency,
+          timezone: 'Africa/Addis_Ababa',
+          inactivityTimeoutMinutes: Number(inactivityTimeout) || 60,
+          bankName,
+          bankAccountName,
+          bankAccountNumber,
+          telebirrNumber,
+          secondaryBankDetails,
+          bankingDetails: `Bank: ${bankName} | Account Name: ${bankAccountName} | Account No: ${bankAccountNumber} | Telebirr: ${telebirrNumber}${secondaryBankDetails ? ` | ${secondaryBankDetails}` : ''}`,
+        },
+        sms: {
+          provider: smsProvider,
+          apiEndpoint: smsEndpoint,
+          apiKey: smsApiKey,
+          senderId: smsSenderId,
+          enabled: smsEnabled,
+          autoWelcome,
+          autoPaymentConfirm,
+          autoDomainReminders,
+          autoInvoiceReminders: true,
+        },
+        reminders: {
+          domainReminderDays: parsedDays.length > 0 ? parsedDays : [30, 14, 7, 3, 1],
+          invoiceReminderDays: [7, 3, 1, -1, -3],
+          lastSchedulerRun: settings?.reminders.lastSchedulerRun || null,
+        },
+      });
+
+      setSmsSaveSuccess(true);
+      setSmsApiKey('');
+      await loadSettings();
+      setTimeout(() => setSmsSaveSuccess(false), 3500);
+    } catch (err: any) {
+      setSmsSaveError(err.message || 'Failed to save SMS API configuration.');
+    } finally {
+      setSmsSaving(false);
     }
   };
 
@@ -791,24 +851,39 @@ export const SettingsView: React.FC = () => {
                 ? 'AfroMessage Auth Token *'
                 : 'Gateway API Key / Token'}
             </label>
-            <div className="relative">
-              <input
-                type={showApiKey ? 'text' : 'password'}
-                value={smsApiKey}
-                onChange={(e) => setSmsApiKey(e.target.value)}
-                placeholder={
-                  settings?.sms.hasApiKey
-                    ? `Current Key: ${settings?.sms.apiKeyMasked} (Enter new key to change)`
-                    : 'Enter your SMS API key'
-                }
-                className="w-full px-3 py-1.5 pr-10 border border-slate-300 rounded-md font-mono text-slate-800 placeholder-slate-400"
-              />
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  value={smsApiKey}
+                  onChange={(e) => setSmsApiKey(e.target.value)}
+                  placeholder={
+                    settings?.sms.hasApiKey
+                      ? `Current Key: ${settings?.sms.apiKeyMasked} (Enter new key to change)`
+                      : 'Enter your SMS API key'
+                  }
+                  className="w-full px-3 py-1.5 pr-10 border border-slate-300 rounded-md font-mono text-slate-800 placeholder-slate-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                >
+                  {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               <button
                 type="button"
-                onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                onClick={handleSaveSmsApi}
+                disabled={smsSaving}
+                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-md font-semibold text-xs transition-colors flex items-center gap-1.5 shrink-0 shadow-2xs disabled:opacity-50"
               >
-                {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {smsSaving ? (
+                  <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                )}
+                <span>{smsSaving ? 'Saving...' : 'Save API'}</span>
               </button>
             </div>
             <p className="text-[11px] text-slate-500 mt-1">
@@ -820,6 +895,20 @@ export const SettingsView: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {smsSaveSuccess && (
+          <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2 font-semibold">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>SMS Gateway API key and routing configuration saved successfully!</span>
+          </div>
+        )}
+
+        {smsSaveError && (
+          <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-center gap-2 font-semibold">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{smsSaveError}</span>
+          </div>
+        )}
 
         {/* Official SMS Ethiopia (Alet Support Team) Policy Notice */}
         <div className="p-3.5 rounded-lg bg-blue-50/70 border border-blue-200 text-xs text-blue-900 space-y-1.5">
@@ -940,6 +1029,25 @@ export const SettingsView: React.FC = () => {
               <span className="text-slate-700 font-medium">Domain Renewal Expiration Reminders</span>
             </label>
           </div>
+        </div>
+
+        <div className="pt-3 border-t border-slate-200 flex items-center justify-between gap-3">
+          <span className="text-[11px] text-slate-500">
+            Save your SMS provider, endpoint URL, Sender ID, and API key directly to the cloud database.
+          </span>
+          <button
+            type="button"
+            onClick={handleSaveSmsApi}
+            disabled={smsSaving}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold text-xs transition-colors flex items-center gap-1.5 shrink-0 shadow-2xs disabled:opacity-50"
+          >
+            {smsSaving ? (
+              <RotateCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="w-3.5 h-3.5" />
+            )}
+            <span>{smsSaving ? 'Saving SMS API...' : 'Save SMS API Configuration'}</span>
+          </button>
         </div>
       </div>
 
