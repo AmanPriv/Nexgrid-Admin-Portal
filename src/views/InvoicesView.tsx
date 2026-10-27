@@ -1137,22 +1137,35 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               <div className="p-6 overflow-y-auto space-y-5 text-xs">
                 {/* Company Profile Header */}
                 <div className="flex flex-col sm:flex-row justify-between gap-4 pb-4 border-b border-slate-200">
-                  <div className="space-y-1">
-                    <div className="text-base font-extrabold text-slate-900 tracking-tight">
-                      {company.businessName}
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-12 h-12 rounded-xl bg-white border border-slate-200 p-1.5 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+                      <img
+                        src="./assets/aistudio/nexgrid_icon.png"
+                        onError={(e) => {
+                          e.currentTarget.src = './assets/aistudio/logo_95537d8d.jpg';
+                        }}
+                        alt="NexGrid Digital Systems"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-contain"
+                      />
                     </div>
-                    <div className="text-slate-600">
-                      Office / Billing Address: <strong className="text-slate-800">{company.businessAddress}</strong>
-                    </div>
-                    <div className="text-slate-600">
-                      Support Phone: <strong className="font-mono text-slate-800">{company.businessPhone}</strong>
-                    </div>
-                    <div className="text-slate-600">
-                      Official Email: <strong className="text-slate-800">{company.businessEmail}</strong>
-                    </div>
-                    <div className="text-slate-600">
-                      TIN: <strong className="font-mono text-slate-900">{company.tinNumber}</strong> • Currency:{' '}
-                      <strong className="font-mono text-slate-900">{company.currency}</strong>
+                    <div className="space-y-1">
+                      <div className="text-base font-extrabold text-slate-900 tracking-tight">
+                        {company.businessName}
+                      </div>
+                      <div className="text-slate-600">
+                        Office / Billing Address: <strong className="text-slate-800">{company.businessAddress}</strong>
+                      </div>
+                      <div className="text-slate-600">
+                        Support Phone: <strong className="font-mono text-slate-800">{company.businessPhone}</strong>
+                      </div>
+                      <div className="text-slate-600">
+                        Official Email: <strong className="text-slate-800">{company.businessEmail}</strong>
+                      </div>
+                      <div className="text-slate-600">
+                        TIN: <strong className="font-mono text-slate-900">{company.tinNumber}</strong> · Currency:{' '}
+                        <strong className="font-mono text-slate-900">{company.currency}</strong>
+                      </div>
                     </div>
                   </div>
 

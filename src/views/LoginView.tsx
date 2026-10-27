@@ -401,14 +401,22 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       <div className="relative w-full max-w-lg z-10">
         {/* Brand Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-700 to-indigo-600 text-white shadow-xl shadow-blue-900/40 mb-3 ring-1 ring-blue-500/30">
-            <ShieldCheck className="w-8 h-8 text-white" />
+          <div className="inline-flex items-center justify-center w-28 h-16 rounded-2xl bg-white p-1.5 shadow-xl shadow-blue-950/50 mb-3 ring-1 ring-slate-200/80 overflow-hidden">
+            <img
+              src="./assets/aistudio/logo_95537d8d.jpg"
+              onError={(e) => {
+                e.currentTarget.src = './assets/aistudio/nexgrid_icon.png';
+              }}
+              alt="NexGrid Digital Systems Logo"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-contain"
+            />
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-white">
             NexGrid Digital Systems
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Customer Management System • Internal Administrative Portal
+            Customer Management System · Internal Administrative Portal
           </p>
         </div>
 

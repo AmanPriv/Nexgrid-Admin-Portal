@@ -75,15 +75,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Brand Header */}
       <div className="p-5 border-b border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-sm font-bold text-lg tracking-wider">
-            N
+          <div className="w-10 h-10 rounded-lg bg-white p-1 flex items-center justify-center shadow-sm border border-slate-700/60 shrink-0 overflow-hidden">
+            <img
+              src="./assets/aistudio/nexgrid_icon.png"
+              onError={(e) => {
+                e.currentTarget.src = './assets/aistudio/logo_95537d8d.jpg';
+              }}
+              alt="NexGrid Digital Systems Icon"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-contain"
+            />
           </div>
           <div>
             <div className="font-bold text-white text-base tracking-tight leading-tight">
               NexGrid
             </div>
             <div className="text-[11px] text-slate-400 font-medium tracking-wide">
-              ADMIN PORTAL
+              Digital Systems
             </div>
           </div>
         </div>

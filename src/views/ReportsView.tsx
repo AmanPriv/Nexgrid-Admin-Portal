@@ -174,19 +174,32 @@ export const ReportsView: React.FC = () => {
 
       {/* Official Company Profile & Banking Details Banner on Report */}
       <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-        <div className="space-y-1">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Issued By • Official Organization Profile
+        <div className="flex items-start gap-3.5">
+          <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200 p-1.5 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+            <img
+              src="./assets/aistudio/nexgrid_icon.png"
+              onError={(e) => {
+                e.currentTarget.src = './assets/aistudio/logo_95537d8d.jpg';
+              }}
+              alt="NexGrid Digital Systems"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-contain"
+            />
           </div>
-          <div className="text-sm font-extrabold text-slate-900">{company.businessName}</div>
-          <div className="text-slate-600">
-            TIN: <strong className="font-mono text-slate-900">{company.tinNumber}</strong> • Address:{' '}
-            <strong className="text-slate-900">{company.businessAddress}</strong> • Currency:{' '}
-            <strong className="font-mono text-slate-900">{company.currency}</strong>
-          </div>
-          <div className="text-slate-600">
-            Support Phone: <strong className="font-mono text-slate-800">{company.businessPhone}</strong> • Official Email:{' '}
-            <strong className="text-slate-800">{company.businessEmail}</strong>
+          <div className="space-y-1">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Issued By · Official Organization Profile
+            </div>
+            <div className="text-sm font-extrabold text-slate-900">{company.businessName}</div>
+            <div className="text-slate-600">
+              TIN: <strong className="font-mono text-slate-900">{company.tinNumber}</strong> · Address:{' '}
+              <strong className="text-slate-900">{company.businessAddress}</strong> · Currency:{' '}
+              <strong className="font-mono text-slate-900">{company.currency}</strong>
+            </div>
+            <div className="text-slate-600">
+              Support Phone: <strong className="font-mono text-slate-800">{company.businessPhone}</strong> · Official Email:{' '}
+              <strong className="text-slate-800">{company.businessEmail}</strong>
+            </div>
           </div>
         </div>
 
@@ -442,15 +455,28 @@ export const ReportsView: React.FC = () => {
 
             <div className="p-6 overflow-y-auto space-y-5 text-xs">
               <div className="flex flex-col sm:flex-row justify-between gap-4 pb-4 border-b border-slate-200">
-                <div className="space-y-1">
-                  <div className="text-base font-extrabold text-slate-900">{company.businessName}</div>
-                  <div className="text-slate-600">
-                    TIN: <strong className="font-mono text-slate-900">{company.tinNumber}</strong> • Address:{' '}
-                    <strong className="text-slate-900">{company.businessAddress}</strong>
+                <div className="flex items-start gap-3.5">
+                  <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200 p-1.5 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+                    <img
+                      src="./assets/aistudio/nexgrid_icon.png"
+                      onError={(e) => {
+                        e.currentTarget.src = './assets/aistudio/logo_95537d8d.jpg';
+                      }}
+                      alt="NexGrid Digital Systems"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-contain"
+                    />
                   </div>
-                  <div className="text-slate-600">
-                    Phone: <strong className="font-mono text-slate-900">{company.businessPhone}</strong> • Email:{' '}
-                    <strong className="text-slate-900">{company.businessEmail}</strong>
+                  <div className="space-y-1">
+                    <div className="text-base font-extrabold text-slate-900">{company.businessName}</div>
+                    <div className="text-slate-600">
+                      TIN: <strong className="font-mono text-slate-900">{company.tinNumber}</strong> · Address:{' '}
+                      <strong className="text-slate-900">{company.businessAddress}</strong>
+                    </div>
+                    <div className="text-slate-600">
+                      Phone: <strong className="font-mono text-slate-900">{company.businessPhone}</strong> · Email:{' '}
+                      <strong className="text-slate-900">{company.businessEmail}</strong>
+                    </div>
                   </div>
                 </div>
                 <div className="sm:text-right space-y-1">

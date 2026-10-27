@@ -158,7 +158,7 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-2xs px-4 sm:px-6 py-3">
       <div className="flex items-center justify-between gap-4">
-        {/* Left: Hamburger & View Title */}
+        {/* Left: Hamburger, Brand Icon & View Title */}
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onOpenMobileSidebar}
@@ -167,7 +167,18 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Menu className="w-5 h-5" />
           </button>
-          <div>
+          <div className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+            <img
+              src="./assets/aistudio/nexgrid_icon.png"
+              onError={(e) => {
+                e.currentTarget.src = './assets/aistudio/logo_95537d8d.jpg';
+              }}
+              alt="NexGrid Digital Systems"
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-contain"
+            />
+          </div>
+          <div className="min-w-0">
             <h1 className="text-sm sm:text-base font-bold text-slate-900 truncate">
               {getTabTitle(currentTab)}
             </h1>

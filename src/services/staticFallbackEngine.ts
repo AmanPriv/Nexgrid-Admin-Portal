@@ -639,7 +639,7 @@ async function sendSmsBrowser(
   saveDb(db);
 
   return {
-    success: log.status === 'sent' || log.status === 'delivered',
+    success: (log.status as string) === 'sent' || (log.status as string) === 'delivered',
     status: log.status,
     messageId: log.id,
     error: log.errorDetails,

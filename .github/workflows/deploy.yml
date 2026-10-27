@@ -31,14 +31,25 @@ jobs:
 
       - name: Prepare production artifact
         run: |
+          rm -rf dist
           mkdir -p dist/assets dist/public/gh-pages
-          cp public/gh-pages/index.prod.html dist/index.html
-          cp public/gh-pages/index.prod.html dist/404.html
-          cp public/gh-pages/*.js public/gh-pages/*.css dist/assets/
-          cp public/gh-pages/*.js public/gh-pages/*.css dist/public/gh-pages/
+          if [ -f "public/gh-pages/index.prod.html" ]; then
+            cp public/gh-pages/index.prod.html dist/index.html
+            cp public/gh-pages/index.prod.html dist/404.html
+          elif [ -f "public/gh-pages/index.html" ]; then
+            cp public/gh-pages/index.html dist/index.html
+            cp public/gh-pages/index.html dist/404.html
+          fi
+          cp public/gh-pages/*.js public/gh-pages/*.css dist/assets/ 2>/dev/null || true
+          cp public/gh-pages/*.js public/gh-pages/*.css dist/public/gh-pages/ 2>/dev/null || true
+          if [ -d "public/gh-pages/assets" ]; then
+            cp -r public/gh-pages/assets/* dist/assets/ 2>/dev/null || true
+            cp public/gh-pages/assets/*.js public/gh-pages/assets/*.css dist/public/gh-pages/ 2>/dev/null || true
+          fi
           if [ -d "public/assets" ]; then
             cp -r public/assets/* dist/assets/ 2>/dev/null || true
           fi
+          cp public/favicon.* public/apple-touch-icon.png dist/ 2>/dev/null || true
           touch dist/.nojekyll
 
       - name: Upload Pages artifact
