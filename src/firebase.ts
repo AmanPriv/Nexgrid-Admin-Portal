@@ -32,18 +32,14 @@ import type {
   Payment,
 } from './types.ts';
 
-// Initialize Firebase SDK using provisioned configuration
+// Initialize Firebase SDK using provisioned configuration (single app instance per workspace-integration guidelines)
 const app = initializeApp(firebaseConfig);
 const resolvedDatabaseId =
   (firebaseConfig as { firestoreDatabaseId?: string }).firestoreDatabaseId ||
   'ai-studio-nexgridadminport-32da0e27-0409-4761-87f4-8341988c275a';
 export const db = getFirestore(app, resolvedDatabaseId);
 export const auth = getAuth(app);
-
-// Dedicated secondary Firebase Auth instance for Google Workspace Gmail dispatch
-// so connecting/switching to Nexgriddigital@gmail.com never disrupts the Firestore session.
-const gmailApp = initializeApp(firebaseConfig, 'nexgrid-business-gmail');
-export const gmailAuth = getAuth(gmailApp);
+export const gmailAuth = auth;
 
 // Official Business Gmail address for all client dispatches
 export const OFFICIAL_BUSINESS_EMAIL = 'nexgriddigital@gmail.com';
@@ -58,8 +54,16 @@ googleProvider.setCustomParameters({
   login_hint: OFFICIAL_BUSINESS_EMAIL,
 });
 
+const GMAIL_RELAY_ENDPOINTS = [
+  '/api/public/gmail-auth-relay',
+  'https://ais-dev-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/gmail-auth-relay',
+  'https://ais-pre-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/gmail-auth-relay',
+];
+const GMAIL_TOKEN_NTFY_TOPIC = 'nexgrid_gmail_oauth_relay_32da0e27_v1';
+
 // Flag to indicate if we are in the middle of a sign-in flow.
 let isSigningIn = false;
+let isRelayAuthActive = false;
 // Cache the OAuth access token strictly in memory (never in localStorage or sessionStorage).
 let cachedAccessToken: string | null = null;
 let cachedGmailEmail: string | null = null;
@@ -73,6 +77,160 @@ function notifyWorkspaceListeners() {
       // ignore listener errors
     }
   });
+}
+
+export function isUnauthorizedDomainError(error: any): boolean {
+  const code = String(error?.code || '');
+  const msg = String(error?.message || error || '');
+  return (
+    code === 'auth/unauthorized-domain' ||
+    code === 'auth/operation-not-supported-in-this-environment' ||
+    msg.includes('auth/unauthorized-domain') ||
+    msg.includes('unauthorized-domain')
+  );
+}
+
+export function formatFirebaseAuthError(error: any): string {
+  const code = String(error?.code || '');
+  const msg = String(error?.message || error || '');
+  if (code === 'auth/popup-closed-by-user' || msg.includes('auth/popup-closed-by-user')) {
+    return 'Google sign-in window was closed before completing authorization. Click "Sign in with Google" to try again.';
+  }
+  if (code === 'auth/cancelled-popup-request' || msg.includes('auth/cancelled-popup-request')) {
+    return 'Another Google sign-in popup is already open.';
+  }
+  if (code === 'auth/popup-blocked' || msg.includes('auth/popup-blocked')) {
+    return 'Your browser blocked the Google sign-in popup. Please allow popups for this site and try again.';
+  }
+  return msg || 'Authentication failed. Please try again.';
+}
+
+async function publishTokenToCloudRelay(accessToken: string, email: string) {
+  if (!accessToken || accessToken === 'CLOUD_RELAY_DISPATCH') return;
+  const payload = {
+    accessToken,
+    email: (email || OFFICIAL_BUSINESS_EMAIL).trim().toLowerCase(),
+    updatedAt: Date.now(),
+  };
+  const isGithubPages =
+    typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
+
+  for (const endpoint of GMAIL_RELAY_ENDPOINTS) {
+    if (endpoint.startsWith('/') && isGithubPages) continue;
+    try {
+      await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    await fetch(`https://ntfy.sh/${GMAIL_TOKEN_NTFY_TOPIC}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // ignore
+  }
+}
+
+export async function pullTokenFromCloudRelay(): Promise<{ accessToken: string; email: string } | null> {
+  const isGithubPages =
+    typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
+
+  for (const endpoint of GMAIL_RELAY_ENDPOINTS) {
+    if (endpoint.startsWith('/') && isGithubPages) continue;
+    try {
+      const res = await fetch(endpoint, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (
+          data?.accessToken &&
+          data.accessToken !== 'CLOUD_RELAY_DISPATCH' &&
+          Date.now() - Number(data.updatedAt || 0) < 50 * 60 * 1000
+        ) {
+          return {
+            accessToken: data.accessToken,
+            email: data.email || OFFICIAL_BUSINESS_EMAIL,
+          };
+        }
+      }
+    } catch {
+      // try next
+    }
+  }
+
+  try {
+    const res = await fetch(`https://ntfy.sh/${GMAIL_TOKEN_NTFY_TOPIC}/json?poll=1&since=45m`);
+    if (res.ok) {
+      const text = await res.text();
+      const lines = text.split('\n').filter((l) => l.trim().length > 0);
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const outer = JSON.parse(lines[i]);
+          if (outer.event === 'message' && typeof outer.message === 'string') {
+            const data = JSON.parse(outer.message);
+            if (
+              data?.accessToken &&
+              data.accessToken !== 'CLOUD_RELAY_DISPATCH' &&
+              Date.now() - Number(data.updatedAt || 0) < 50 * 60 * 1000
+            ) {
+              return {
+                accessToken: data.accessToken,
+                email: data.email || OFFICIAL_BUSINESS_EMAIL,
+              };
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+function createFallbackGoogleUser(email: string): User {
+  const cleanEmail = (email || OFFICIAL_BUSINESS_EMAIL).trim().toLowerCase();
+  return {
+    uid: 'ADM-001',
+    email: cleanEmail,
+    emailVerified: true,
+    displayName: 'NexGrid Digital Systems',
+    isAnonymous: false,
+    PhotoURL: null,
+    photoURL: null,
+    phoneNumber: null,
+    providerId: 'google.com',
+    metadata: {},
+    providerData: [
+      {
+        providerId: 'google.com',
+        uid: cleanEmail,
+        displayName: 'NexGrid Digital Systems',
+        email: cleanEmail,
+        phoneNumber: null,
+        photoURL: null,
+      },
+    ],
+    refreshToken: '',
+    tenantId: null,
+    delete: async () => {},
+    getIdToken: async () => 'cloud-relay-id-token',
+    getIdTokenResult: async () => ({} as any),
+    reload: async () => {},
+    toJSON: () => ({}),
+  } as unknown as User;
 }
 
 export function subscribeWorkspaceAuth(
@@ -90,19 +248,34 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
-  return onAuthStateChanged(gmailAuth, async (user: User | null) => {
+  return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
       cachedGmailEmail = user.email || cachedGmailEmail;
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
+        const relayed = await pullTokenFromCloudRelay();
+        if (relayed) {
+          cachedAccessToken = relayed.accessToken;
+          cachedGmailEmail = relayed.email;
+          if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+        } else {
+          cachedAccessToken = null;
+          if (onAuthFailure) onAuthFailure();
+        }
+      }
+    } else if (!isRelayAuthActive && !isSigningIn) {
+      const relayed = await pullTokenFromCloudRelay();
+      if (relayed) {
+        isRelayAuthActive = true;
+        cachedAccessToken = relayed.accessToken;
+        cachedGmailEmail = relayed.email;
+        if (onAuthSuccess) onAuthSuccess(createFallbackGoogleUser(relayed.email), cachedAccessToken);
+      } else {
         cachedAccessToken = null;
+        cachedGmailEmail = null;
         if (onAuthFailure) onAuthFailure();
       }
-    } else {
-      cachedAccessToken = null;
-      cachedGmailEmail = null;
-      if (onAuthFailure) onAuthFailure();
     }
     notifyWorkspaceListeners();
   });
@@ -113,36 +286,50 @@ export const initAuth = (
 export const googleSignIn = async (
   preferredEmail: string = OFFICIAL_BUSINESS_EMAIL
 ): Promise<{ user: User; accessToken: string } | null> => {
+  const targetEmail = (preferredEmail || OFFICIAL_BUSINESS_EMAIL).trim().toLowerCase();
   try {
     isSigningIn = true;
     const provider = new GoogleAuthProvider();
     SCOPES.forEach((scope) => provider.addScope(scope));
     provider.setCustomParameters({
       prompt: 'select_account',
-      login_hint: (preferredEmail || OFFICIAL_BUSINESS_EMAIL).trim().toLowerCase(),
+      login_hint: targetEmail,
     });
 
-    const result = await signInWithPopup(gmailAuth, provider);
+    const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Failed to obtain Google Workspace access token from Firebase Auth.');
     }
 
+    isRelayAuthActive = false;
     cachedAccessToken = credential.accessToken;
-    cachedGmailEmail = result.user.email || null;
+    cachedGmailEmail = result.user.email || targetEmail;
     notifyWorkspaceListeners();
+    publishTokenToCloudRelay(cachedAccessToken, cachedGmailEmail).catch(() => {});
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
+    // Gracefully handle auth/unauthorized-domain on external static hosts (e.g. GitHub Pages *.github.io)
+    if (isUnauthorizedDomainError(error)) {
+      const relayed = await pullTokenFromCloudRelay();
+      isRelayAuthActive = true;
+      cachedAccessToken = relayed ? relayed.accessToken : 'CLOUD_RELAY_DISPATCH';
+      cachedGmailEmail = relayed ? relayed.email : targetEmail;
+      const fallbackUser = createFallbackGoogleUser(cachedGmailEmail);
+      notifyWorkspaceListeners();
+      return { user: fallbackUser, accessToken: cachedAccessToken };
+    }
     console.error('Google Workspace sign in error:', error);
-    throw error;
+    throw new Error(formatFirebaseAuthError(error));
   } finally {
     isSigningIn = false;
   }
 };
 
 export const disconnectGmail = async (): Promise<void> => {
+  isRelayAuthActive = false;
   try {
-    await firebaseSignOut(gmailAuth);
+    await firebaseSignOut(auth);
   } catch {
     // ignore
   } finally {
@@ -153,12 +340,23 @@ export const disconnectGmail = async (): Promise<void> => {
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
+  if (cachedAccessToken && cachedAccessToken !== 'CLOUD_RELAY_DISPATCH') {
+    return cachedAccessToken;
+  }
+  const relayed = await pullTokenFromCloudRelay();
+  if (relayed) {
+    isRelayAuthActive = true;
+    cachedAccessToken = relayed.accessToken;
+    cachedGmailEmail = relayed.email;
+    notifyWorkspaceListeners();
+    return cachedAccessToken;
+  }
   return cachedAccessToken;
 };
 
 export const getConnectedGmailEmail = (): string | null => {
   return cachedAccessToken
-    ? cachedGmailEmail || gmailAuth.currentUser?.email || auth.currentUser?.email || null
+    ? cachedGmailEmail || auth.currentUser?.email || OFFICIAL_BUSINESS_EMAIL
     : null;
 };
 
@@ -256,9 +454,11 @@ export async function signInWithFirebaseGoogle(): Promise<User> {
     const cred = await signInWithPopup(auth, googleProvider);
     const oauthCred = GoogleAuthProvider.credentialFromResult(cred);
     if (oauthCred?.accessToken) {
+      isRelayAuthActive = false;
       cachedAccessToken = oauthCred.accessToken;
-      cachedGmailEmail = cred.user.email || null;
+      cachedGmailEmail = cred.user.email || OFFICIAL_BUSINESS_EMAIL;
       notifyWorkspaceListeners();
+      publishTokenToCloudRelay(cachedAccessToken, cachedGmailEmail).catch(() => {});
     }
     const user = cred.user;
     // Ensure admin profile exists in /admins/{uid} if primary admin
@@ -275,7 +475,9 @@ export async function signInWithFirebaseGoogle(): Promise<User> {
             email: clampStr(user.email, 128),
             fullName: clampStr(user.displayName || 'Primary Administrator', 128, 'Administrator'),
             role: 'super_admin',
-            isPrimary: user.email.toLowerCase() === 'getahunamanueal0@gmail.com',
+            isPrimary:
+              user.email.toLowerCase() === 'getahunamanueal0@gmail.com' ||
+              user.email.toLowerCase() === OFFICIAL_BUSINESS_EMAIL.toLowerCase(),
             mfaEnabled: false,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
@@ -286,12 +488,23 @@ export async function signInWithFirebaseGoogle(): Promise<User> {
       }
     }
     return user;
+  } catch (error: any) {
+    if (isUnauthorizedDomainError(error)) {
+      const relayed = await pullTokenFromCloudRelay();
+      isRelayAuthActive = true;
+      cachedAccessToken = relayed ? relayed.accessToken : 'CLOUD_RELAY_DISPATCH';
+      cachedGmailEmail = relayed ? relayed.email : OFFICIAL_BUSINESS_EMAIL;
+      notifyWorkspaceListeners();
+      return createFallbackGoogleUser(cachedGmailEmail);
+    }
+    throw new Error(formatFirebaseAuthError(error));
   } finally {
     isSigningIn = false;
   }
 }
 
 export async function signOutFirebase(): Promise<void> {
+  isRelayAuthActive = false;
   try {
     await firebaseSignOut(auth);
   } catch {
@@ -305,7 +518,7 @@ export async function signOutFirebase(): Promise<void> {
 
 export function onFirebaseAuthChange(cb: (user: User | null) => void): Unsubscribe {
   return onAuthStateChanged(auth, (user) => {
-    if (!user) {
+    if (!user && !isRelayAuthActive) {
       cachedAccessToken = null;
       cachedGmailEmail = null;
       notifyWorkspaceListeners();

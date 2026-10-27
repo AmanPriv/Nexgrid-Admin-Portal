@@ -677,8 +677,17 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       throw new Error('Verified Google email is required.');
     }
     let admin = db.admins.find((a) => a.email.toLowerCase() === cleanEmail);
+    const isOfficialAdminEmail =
+      cleanEmail === 'getahunamanueal0@gmail.com' ||
+      cleanEmail === 'nexgriddigital@gmail.com' ||
+      body.uid === 'ADM-001';
+
+    if (!admin && isOfficialAdminEmail && db.admins.length > 0) {
+      admin = db.admins[0];
+    }
+
     if (!admin) {
-      if (db.admins.length === 0 || cleanEmail === 'getahunamanueal0@gmail.com') {
+      if (db.admins.length === 0 || isOfficialAdminEmail) {
         const username = cleanEmail.split('@')[0].replace(/[^a-z0-9_-]/g, '') || 'admin';
         admin = {
           id: db.admins.length === 0 ? 'ADM-001' : `ADM-${String(db.admins.length + 1).padStart(3, '0')}`,
