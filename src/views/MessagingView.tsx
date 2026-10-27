@@ -24,6 +24,7 @@ import {
   getConnectedGmailEmail,
   googleSignIn,
   subscribeWorkspaceAuth,
+  OFFICIAL_BUSINESS_EMAIL,
 } from '../firebase.ts';
 import { EmailConfirmationModal } from '../components/EmailConfirmationModal.tsx';
 import type { BulkEmailRecipient } from '../services/gmailService.ts';
@@ -205,7 +206,7 @@ export const MessagingView: React.FC = () => {
   const handleConnectGmail = async () => {
     setConnectingGmail(true);
     try {
-      const res = await googleSignIn();
+      const res = await googleSignIn(OFFICIAL_BUSINESS_EMAIL);
       if (res) {
         setHasGmailToken(true);
         setConnectedGmailEmail(res.user.email || null);
@@ -216,6 +217,10 @@ export const MessagingView: React.FC = () => {
       setConnectingGmail(false);
     }
   };
+
+  const isBusinessSenderConnected =
+    Boolean(hasGmailToken && connectedGmailEmail) &&
+    connectedGmailEmail!.trim().toLowerCase() === OFFICIAL_BUSINESS_EMAIL.toLowerCase();
 
   const customersWithEmail = customers.filter((c) => c.email && c.email.trim().includes('@'));
 
@@ -501,22 +506,30 @@ export const MessagingView: React.FC = () => {
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-xs font-bold text-slate-900">
-                    Google Workspace Gmail Dispatch
+                    Business Gmail Dispatch ({OFFICIAL_BUSINESS_EMAIL})
                   </h3>
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                      hasGmailToken
+                      isBusinessSenderConnected
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : hasGmailToken
+                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
                         : 'bg-amber-50 text-amber-700 border border-amber-200'
                     }`}
                   >
-                    {hasGmailToken ? 'GMAIL CONNECTED' : 'GOOGLE SIGN-IN NEEDED'}
+                    {isBusinessSenderConnected
+                      ? `ACTIVE: ${OFFICIAL_BUSINESS_EMAIL}`
+                      : hasGmailToken
+                      ? `SWITCH TO ${OFFICIAL_BUSINESS_EMAIL.toUpperCase()}`
+                      : 'CONNECT BUSINESS GMAIL'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  {hasGmailToken
-                    ? `Sending from ${connectedGmailEmail || 'authenticated Google account'} • ${customersWithEmail.length} clients with registered emails (${emailSentCount} sent)`
-                    : `Send official emails to ${customersWithEmail.length} registered client email(s) with permission via Gmail API.`}
+                  {isBusinessSenderConnected
+                    ? `All client emails are dispatched from ${OFFICIAL_BUSINESS_EMAIL} • ${customersWithEmail.length} clients with registered emails (${emailSentCount} sent)`
+                    : hasGmailToken
+                    ? `Currently signed in as ${connectedGmailEmail}. Click "Switch to ${OFFICIAL_BUSINESS_EMAIL}" to dispatch all client emails from your business Gmail.`
+                    : `Sign in with ${OFFICIAL_BUSINESS_EMAIL} to dispatch all client emails from your official business address (${customersWithEmail.length} registered clients).`}
                 </p>
               </div>
             </div>
@@ -593,10 +606,30 @@ export const MessagingView: React.FC = () => {
                 </div>
               </button>
             ) : (
-              <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Ready to Send</span>
-              </span>
+              <div className="flex items-center gap-2">
+                {isBusinessSenderConnected && (
+                  <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Ready</span>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleConnectGmail}
+                  disabled={connectingGmail}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                    isBusinessSenderConnected
+                      ? 'border border-slate-200 hover:bg-slate-50 text-slate-700'
+                      : 'bg-amber-600 hover:bg-amber-500 text-white shadow-2xs'
+                  }`}
+                >
+                  {connectingGmail
+                    ? 'Switching...'
+                    : isBusinessSenderConnected
+                    ? 'Switch Account'
+                    : `Switch to ${OFFICIAL_BUSINESS_EMAIL}`}
+                </button>
+              </div>
             )}
           </div>
         </div>

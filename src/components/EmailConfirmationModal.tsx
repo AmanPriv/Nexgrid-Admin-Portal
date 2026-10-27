@@ -14,6 +14,7 @@ import {
   getConnectedGmailEmail,
   googleSignIn,
   subscribeWorkspaceAuth,
+  OFFICIAL_BUSINESS_EMAIL,
 } from '../firebase.ts';
 import {
   sendGmailMessage,
@@ -89,11 +90,15 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
 
   if (!isOpen) return null;
 
+  const isBusinessSender =
+    Boolean(hasToken && connectedEmail) &&
+    connectedEmail!.trim().toLowerCase() === OFFICIAL_BUSINESS_EMAIL.toLowerCase();
+
   const handleGoogleAuthorize = async () => {
     setSigningIn(true);
     setError(null);
     try {
-      const res = await googleSignIn();
+      const res = await googleSignIn(OFFICIAL_BUSINESS_EMAIL);
       if (res) {
         setHasToken(true);
         setConnectedEmail(res.user.email || null);
@@ -111,7 +116,9 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
     setResult(null);
 
     if (!hasToken) {
-      setError('Please click "Sign in with Google" above to authorize Gmail before sending.');
+      setError(
+        `Please click "Sign in with Google" above and select ${OFFICIAL_BUSINESS_EMAIL} before sending.`
+      );
       return;
     }
 
@@ -131,9 +138,9 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
         if (bulkRes.sent > 0) {
           setResult({
             success: bulkRes.failed === 0,
-            summary: `Dispatched ${bulkRes.sent} of ${bulkRes.total} email(s) via Gmail API.${
-              bulkRes.failed > 0 ? ` (${bulkRes.failed} failed)` : ''
-            }`,
+            summary: `Dispatched ${bulkRes.sent} of ${bulkRes.total} email(s) from ${
+              connectedEmail || OFFICIAL_BUSINESS_EMAIL
+            }.${bulkRes.failed > 0 ? ` (${bulkRes.failed} failed)` : ''}`,
           });
           if (onSuccess) onSuccess();
         } else {
@@ -156,7 +163,9 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
         if (singleRes.success) {
           setResult({
             success: true,
-            summary: `Email successfully sent to ${recipientEmail.trim()} (Gmail ID: ${singleRes.messageId}).`,
+            summary: `Email successfully dispatched from ${
+              connectedEmail || OFFICIAL_BUSINESS_EMAIL
+            } to ${recipientEmail.trim()} (Gmail ID: ${singleRes.messageId}).`,
           });
           if (onSuccess) onSuccess();
         } else {
@@ -185,7 +194,7 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
             <div>
               <h3 className="text-sm font-bold text-slate-900">{title}</h3>
               <p className="text-[11px] text-slate-500">
-                Review recipient, subject, and message content before confirming Gmail dispatch
+                Official Business Dispatcher: <strong className="font-mono text-slate-700">{OFFICIAL_BUSINESS_EMAIL}</strong>
               </p>
             </div>
           </div>
@@ -202,29 +211,36 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
           {/* Google Workspace Connection Bar */}
           <div
             className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-              hasToken
+              hasToken && isBusinessSender
                 ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
                 : 'bg-amber-50 border-amber-300 text-amber-950'
             }`}
           >
             <div className="space-y-0.5">
               <div className="font-bold flex items-center gap-1.5 text-xs">
-                {hasToken ? (
+                {hasToken && isBusinessSender ? (
                   <>
                     <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>Gmail API Connected</span>
+                    <span>Business Gmail Connected ({OFFICIAL_BUSINESS_EMAIL})</span>
+                  </>
+                ) : hasToken ? (
+                  <>
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Connected as {connectedEmail} (Not Business Email)</span>
                   </>
                 ) : (
                   <>
                     <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>Google Workspace Authorization Required</span>
+                    <span>Connect Business Gmail ({OFFICIAL_BUSINESS_EMAIL})</span>
                   </>
                 )}
               </div>
               <p className="text-[11px] opacity-90">
-                {hasToken
-                  ? `Sending on behalf of ${connectedEmail || 'your authenticated Google account'}`
-                  : 'Sign in with Google to grant permission to send this email from your Gmail account.'}
+                {hasToken && isBusinessSender
+                  ? `All client emails will be dispatched directly from ${OFFICIAL_BUSINESS_EMAIL}.`
+                  : hasToken
+                  ? `Click "Switch to ${OFFICIAL_BUSINESS_EMAIL}" to select your official business Gmail account in the Google popup.`
+                  : `Click "Sign in with Google" and choose ${OFFICIAL_BUSINESS_EMAIL} to dispatch client emails from your business account.`}
               </p>
             </div>
 
@@ -274,9 +290,17 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
                 type="button"
                 onClick={handleGoogleAuthorize}
                 disabled={signingIn}
-                className="px-2.5 py-1 rounded-md border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-800 font-semibold text-[11px] shrink-0"
+                className={`px-3 py-1.5 rounded-lg font-semibold text-[11px] shrink-0 transition-colors ${
+                  isBusinessSender
+                    ? 'border border-emerald-300 bg-white hover:bg-emerald-50 text-emerald-800'
+                    : 'bg-blue-600 hover:bg-blue-500 text-white shadow-xs'
+                }`}
               >
-                Switch Account
+                {signingIn
+                  ? 'Opening Google...'
+                  : isBusinessSender
+                  ? 'Reconnect / Switch'
+                  : `Switch to ${OFFICIAL_BUSINESS_EMAIL}`}
               </button>
             )}
           </div>

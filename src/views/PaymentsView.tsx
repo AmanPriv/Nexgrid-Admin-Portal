@@ -553,9 +553,9 @@ export const PaymentsView: React.FC<PaymentsViewProps> = ({
                   <input
                     type="number"
                     required
-                    min={1}
-                    step={10}
-                    placeholder="e.g. 3500"
+                    min={0}
+                    step="any"
+                    placeholder="e.g. 10000"
                     value={formAmount}
                     onChange={(e) => setFormAmount(e.target.value)}
                     className="w-full px-2.5 py-1.5 border border-slate-300 rounded-md font-mono font-bold text-slate-900 focus:ring-1 focus:ring-blue-500 focus:outline-none"

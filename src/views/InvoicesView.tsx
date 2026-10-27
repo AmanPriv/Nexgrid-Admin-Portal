@@ -781,7 +781,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       <input
                         type="number"
                         required
-                        min={1}
+                        min={0}
+                        step="any"
                         placeholder="Qty"
                         value={item.quantity}
                         onChange={(e) => updateInvoiceItem(idx, 'quantity', e.target.value)}
@@ -791,7 +792,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         type="number"
                         required
                         min={0}
-                        step={50}
+                        step="any"
                         placeholder="Unit Price"
                         value={item.unitPrice}
                         onChange={(e) => updateInvoiceItem(idx, 'unitPrice', e.target.value)}
@@ -840,6 +841,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         <input
                           type="number"
                           min={0}
+                          step="any"
                           value={invDiscount}
                           onChange={(e) => setInvDiscount(Number(e.target.value))}
                           className="w-20 px-1 py-0.5 border border-slate-300 rounded text-right font-mono text-xs"
@@ -850,7 +852,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         <input
                           type="number"
                           min={0}
-                          max={50}
+                          step="any"
                           value={invTaxRate}
                           onChange={(e) => setInvTaxRate(Number(e.target.value))}
                           className="w-20 px-1 py-0.5 border border-slate-300 rounded text-right font-mono text-xs"
@@ -990,7 +992,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       />
                       <input
                         type="number"
-                        min={1}
+                        min={0}
+                        step="any"
                         value={item.quantity}
                         onChange={(e) => {
                           const next = [...quoItems];
@@ -1003,7 +1006,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       <input
                         type="number"
                         min={0}
-                        step={50}
+                        step="any"
                         value={item.unitPrice}
                         onChange={(e) => {
                           const next = [...quoItems];

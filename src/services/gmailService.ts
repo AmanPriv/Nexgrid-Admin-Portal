@@ -1,4 +1,4 @@
-import { getAccessToken } from '../firebase.ts';
+import { getAccessToken, getConnectedGmailEmail, OFFICIAL_BUSINESS_EMAIL } from '../firebase.ts';
 import { api } from './api.ts';
 import type { Customer, Domain, Invoice, Quotation, Payment, AppSettings } from '../types.ts';
 
@@ -53,7 +53,7 @@ function buildBrandedHtmlBody(
 ): string {
   const businessName = profile?.businessName || 'NexGrid Digital Systems';
   const businessPhone = profile?.businessPhone || '+251 906697634';
-  const businessEmail = profile?.businessEmail || 'nexgriddigital@gmail.com';
+  const businessEmail = profile?.businessEmail || OFFICIAL_BUSINESS_EMAIL;
   const tinNumber = profile?.tinNumber || '0054892147';
   const bankName = profile?.bankName || 'Commercial Bank of Ethiopia (CBE)';
   const bankAccountName = profile?.bankAccountName || 'NexGrid Digital Systems';
@@ -91,7 +91,7 @@ function buildBrandedHtmlBody(
       <div>Bank: <strong>${escapeHtml(bankName)}</strong> &bull; Account Name: <strong>${escapeHtml(bankAccountName)}</strong></div>
       <div>Account No: <strong>${escapeHtml(bankAccountNumber)}</strong> &bull; Telebirr: <strong>${escapeHtml(telebirrNumber)}</strong></div>
       <div style="margin-top: 10px; font-size: 11px; color: #64748b;">
-        This message was dispatched by ${escapeHtml(businessName)} Customer Management Portal.
+        Dispatched by ${escapeHtml(businessName)} (${escapeHtml(OFFICIAL_BUSINESS_EMAIL)}).
       </div>
     </div>
   </div>
@@ -112,15 +112,20 @@ export async function sendGmailMessage(payload: EmailSendPayload): Promise<{
 
   const accessToken = await getAccessToken();
   if (!accessToken) {
-    const authErr: any = new Error('Please sign in with Google to authorize sending emails via Gmail.');
+    const authErr: any = new Error(
+      `Please sign in with Google (${OFFICIAL_BUSINESS_EMAIL}) to authorize sending emails via Gmail.`
+    );
     authErr.code = 'NEEDS_GOOGLE_AUTH';
     throw authErr;
   }
 
+  const activeSender = (getConnectedGmailEmail() || OFFICIAL_BUSINESS_EMAIL).trim();
   const subject = (payload.subject || 'NexGrid Digital Systems Notification').trim();
   const htmlBody = buildBrandedHtmlBody(payload.body, subject, payload.companyProfile);
 
   const mimeLines = [
+    `From: "NexGrid Digital Systems" <${activeSender}>`,
+    `Reply-To: "NexGrid Digital Systems" <${OFFICIAL_BUSINESS_EMAIL}>`,
     `To: ${cleanTo}`,
     `Subject: ${encodeRfc2047Subject(subject)}`,
     'MIME-Version: 1.0',

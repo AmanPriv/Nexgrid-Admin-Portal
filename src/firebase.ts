@@ -40,12 +40,23 @@ const resolvedDatabaseId =
 export const db = getFirestore(app, resolvedDatabaseId);
 export const auth = getAuth(app);
 
+// Dedicated secondary Firebase Auth instance for Google Workspace Gmail dispatch
+// so connecting/switching to Nexgriddigital@gmail.com never disrupts the Firestore session.
+const gmailApp = initializeApp(firebaseConfig, 'nexgrid-business-gmail');
+export const gmailAuth = getAuth(gmailApp);
+
+// Official Business Gmail address for all client dispatches
+export const OFFICIAL_BUSINESS_EMAIL = 'nexgriddigital@gmail.com';
+
 // Google Workspace OAuth Scopes
 export const SCOPES = ['https://www.googleapis.com/auth/gmail.send'];
 
 export const googleProvider = new GoogleAuthProvider();
 SCOPES.forEach((scope) => googleProvider.addScope(scope));
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+  login_hint: OFFICIAL_BUSINESS_EMAIL,
+});
 
 // Flag to indicate if we are in the middle of a sign-in flow.
 let isSigningIn = false;
@@ -79,7 +90,7 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
-  return onAuthStateChanged(auth, async (user: User | null) => {
+  return onAuthStateChanged(gmailAuth, async (user: User | null) => {
     if (user) {
       cachedGmailEmail = user.email || cachedGmailEmail;
       if (cachedAccessToken) {
@@ -98,10 +109,20 @@ export const initAuth = (
 };
 
 // Must be called from a button click or user interaction to authorize Google Workspace (Gmail)
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+// Defaults login_hint to nexgriddigital@gmail.com so the Google account chooser pre-selects the business Gmail.
+export const googleSignIn = async (
+  preferredEmail: string = OFFICIAL_BUSINESS_EMAIL
+): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, googleProvider);
+    const provider = new GoogleAuthProvider();
+    SCOPES.forEach((scope) => provider.addScope(scope));
+    provider.setCustomParameters({
+      prompt: 'select_account',
+      login_hint: (preferredEmail || OFFICIAL_BUSINESS_EMAIL).trim().toLowerCase(),
+    });
+
+    const result = await signInWithPopup(gmailAuth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Failed to obtain Google Workspace access token from Firebase Auth.');
@@ -119,12 +140,33 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
   }
 };
 
+export const disconnectGmail = async (): Promise<void> => {
+  try {
+    await firebaseSignOut(gmailAuth);
+  } catch {
+    // ignore
+  } finally {
+    cachedAccessToken = null;
+    cachedGmailEmail = null;
+    notifyWorkspaceListeners();
+  }
+};
+
 export const getAccessToken = async (): Promise<string | null> => {
   return cachedAccessToken;
 };
 
 export const getConnectedGmailEmail = (): string | null => {
-  return cachedAccessToken ? cachedGmailEmail || auth.currentUser?.email || null : null;
+  return cachedAccessToken
+    ? cachedGmailEmail || gmailAuth.currentUser?.email || auth.currentUser?.email || null
+    : null;
+};
+
+export const isBusinessGmailConnected = (): boolean => {
+  const email = getConnectedGmailEmail();
+  return Boolean(
+    cachedAccessToken && email && email.trim().toLowerCase() === OFFICIAL_BUSINESS_EMAIL.toLowerCase()
+  );
 };
 
 export enum OperationType {

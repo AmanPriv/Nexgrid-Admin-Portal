@@ -587,7 +587,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
                     type="number"
                     required
                     min={0}
-                    step={50}
+                    step="any"
                     value={formPrice}
                     onChange={(e) => setFormPrice(e.target.value)}
                     className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"
@@ -695,6 +695,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
                     type="number"
                     required
                     min={0}
+                    step="any"
                     value={renewalPrice}
                     onChange={(e) => setRenewalPrice(Number(e.target.value))}
                     className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-mono focus:ring-1 focus:ring-blue-500 focus:outline-none"

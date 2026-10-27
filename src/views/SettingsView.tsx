@@ -31,7 +31,9 @@ import {
   getAccessToken,
   getConnectedGmailEmail,
   googleSignIn,
+  disconnectGmail,
   subscribeWorkspaceAuth,
+  OFFICIAL_BUSINESS_EMAIL,
 } from '../firebase.ts';
 
 export const SettingsView: React.FC = () => {
@@ -122,7 +124,7 @@ export const SettingsView: React.FC = () => {
   const handleConnectGmail = async () => {
     setSigningInGoogle(true);
     try {
-      const res = await googleSignIn();
+      const res = await googleSignIn(OFFICIAL_BUSINESS_EMAIL);
       if (res) {
         setGmailToken(res.accessToken);
         setGmailSender(res.user.email);
@@ -133,6 +135,16 @@ export const SettingsView: React.FC = () => {
       setSigningInGoogle(false);
     }
   };
+
+  const handleDisconnectGmail = async () => {
+    await disconnectGmail();
+    setGmailToken(null);
+    setGmailSender(null);
+  };
+
+  const isBusinessGmailActive =
+    Boolean(gmailToken && gmailSender) &&
+    gmailSender!.trim().toLowerCase() === OFFICIAL_BUSINESS_EMAIL.toLowerCase();
 
   const loadSettings = async () => {
     setLoading(true);
@@ -416,31 +428,53 @@ export const SettingsView: React.FC = () => {
             <Mail className="w-4 h-4 text-blue-600" />
             <div>
               <h3 className="text-sm font-bold text-slate-900">
-                Google Workspace Gmail Integration (Client Email Dispatch)
+                Business Gmail Dispatcher — <span className="font-mono text-blue-600">{OFFICIAL_BUSINESS_EMAIL}</span>
               </h3>
               <p className="text-xs text-slate-500">
-                Send official branded HTML emails (Welcome, Domain Renewals, Invoices, Quotations & Payment Receipts) to clients with registered email addresses
+                All client emails (Welcome, Domain Renewals, Invoices, Quotations &amp; Payment Receipts) are dispatched from <strong className="text-slate-700">{OFFICIAL_BUSINESS_EMAIL}</strong>
               </p>
             </div>
           </div>
           <span
             className={`text-[10px] font-bold px-2.5 py-0.5 rounded self-start sm:self-center ${
-              gmailToken
+              isBusinessGmailActive
                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                 : 'bg-amber-50 text-amber-700 border border-amber-200'
             }`}
           >
-            {gmailToken ? `CONNECTED (${gmailSender || 'Gmail API'})` : 'SIGN IN REQUIRED'}
+            {isBusinessGmailActive
+              ? `ACTIVE SENDER: ${OFFICIAL_BUSINESS_EMAIL}`
+              : gmailToken
+              ? `CONNECTED AS ${gmailSender} (SWITCH REQUIRED)`
+              : `CONNECT ${OFFICIAL_BUSINESS_EMAIL.toUpperCase()}`}
           </span>
         </div>
+
+        {gmailToken && !isBusinessGmailActive && (
+          <div className="p-3 rounded-lg bg-amber-50 border border-amber-300 text-xs text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <strong>Different Google Account Connected:</strong> You are currently connected as{' '}
+              <span className="font-mono font-semibold">{gmailSender}</span>. Click{' '}
+              <strong>Switch to {OFFICIAL_BUSINESS_EMAIL}</strong> and choose your business Gmail account in the Google popup so all client emails are dispatched from <span className="font-mono font-semibold">{OFFICIAL_BUSINESS_EMAIL}</span>.
+            </div>
+            <button
+              type="button"
+              onClick={handleConnectGmail}
+              disabled={signingInGoogle}
+              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs shrink-0"
+            >
+              Switch to {OFFICIAL_BUSINESS_EMAIL}
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center text-xs">
           <div className="space-y-1.5">
             <div className="font-semibold text-slate-800">
-              OAuth 2.0 Scope: <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-[11px]">https://www.googleapis.com/auth/gmail.send</code>
+              Official Sender Account: <code className="bg-blue-50 text-blue-800 border border-blue-200 px-1.5 py-0.5 rounded font-mono text-[11px]">{OFFICIAL_BUSINESS_EMAIL}</code>
             </div>
             <p className="text-[11px] text-slate-500 leading-relaxed">
-              Your Google Workspace access token is held strictly in browser memory for security and never written to persistent storage. Every email requires your explicit confirmation before dispatch.
+              Clicking <strong>Sign in with Google</strong> opens the Google account selector pre-targeted to <strong>{OFFICIAL_BUSINESS_EMAIL}</strong>. Select that account to authorize client email dispatch.
             </p>
           </div>
 
@@ -482,12 +516,21 @@ export const SettingsView: React.FC = () => {
                 <span className="gsi-material-button-contents">
                   {signingInGoogle
                     ? 'Connecting...'
-                    : gmailToken
-                    ? 'Reconnect Google'
+                    : isBusinessGmailActive
+                    ? 'Reconnect Business Gmail'
                     : 'Sign in with Google'}
                 </span>
               </div>
             </button>
+            {gmailToken && (
+              <button
+                type="button"
+                onClick={handleDisconnectGmail}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 font-medium text-xs"
+              >
+                Disconnect
+              </button>
+            )}
           </div>
         </div>
 
@@ -913,8 +956,8 @@ export const SettingsView: React.FC = () => {
             </label>
             <input
               type="number"
-              min={5}
-              max={480}
+              min={1}
+              step="any"
               value={inactivityTimeout}
               onChange={(e) => setInactivityTimeout(e.target.value)}
               className="w-full px-3 py-1.5 border border-slate-300 rounded-md font-mono"
