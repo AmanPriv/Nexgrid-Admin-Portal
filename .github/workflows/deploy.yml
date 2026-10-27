@@ -33,12 +33,12 @@ jobs:
         run: |
           rm -rf dist
           mkdir -p dist/assets dist/public/gh-pages
-          if [ -f "public/gh-pages/index.prod.html" ]; then
-            cp public/gh-pages/index.prod.html dist/index.html
-            cp public/gh-pages/index.prod.html dist/404.html
-          elif [ -f "public/gh-pages/index.html" ]; then
+          if [ -f "public/gh-pages/index.html" ]; then
             cp public/gh-pages/index.html dist/index.html
             cp public/gh-pages/index.html dist/404.html
+          elif [ -f "public/gh-pages/index.prod.html" ]; then
+            cp public/gh-pages/index.prod.html dist/index.html
+            cp public/gh-pages/index.prod.html dist/404.html
           fi
           cp public/gh-pages/*.js public/gh-pages/*.css dist/assets/ 2>/dev/null || true
           cp public/gh-pages/*.js public/gh-pages/*.css dist/public/gh-pages/ 2>/dev/null || true

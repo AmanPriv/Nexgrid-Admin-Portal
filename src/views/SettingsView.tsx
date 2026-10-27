@@ -554,15 +554,22 @@ export const SettingsView: React.FC = () => {
               <Shield className="w-4 h-4 text-blue-600 shrink-0" />
               <span>Authorize Domain in Firebase Console ({FIREBASE_PROJECT_ID})</span>
             </div>
-            <a
-              href={FIREBASE_AUTH_SETTINGS_URL}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard?.writeText(FIREBASE_AUTH_SETTINGS_URL);
+                setCopiedDomain('__console_url__');
+                setTimeout(() => setCopiedDomain(null), 2000);
+              }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-semibold text-[11px] self-start sm:self-center shadow-2xs"
             >
-              <span>Open Firebase Authorized Domains</span>
+              <span>
+                {copiedDomain === '__console_url__'
+                  ? 'Console URL Copied!'
+                  : 'Copy Firebase Console URL'}
+              </span>
               <ExternalLink className="w-3.5 h-3.5" />
-            </a>
+            </button>
           </div>
           <p className="text-[11px] text-blue-900 leading-relaxed">
             To enable direct Google Sign-In (<code className="bg-white/80 px-1 rounded font-mono">auth/unauthorized-domain</code> fix) on GitHub Pages or your custom domain, open{' '}

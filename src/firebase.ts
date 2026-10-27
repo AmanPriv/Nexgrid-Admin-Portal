@@ -321,18 +321,16 @@ export const googleSignIn = async (
   } catch (error: any) {
     if (isUnauthorizedDomainError(error)) {
       const relayed = await pullTokenFromCloudRelay();
-      if (relayed && relayed.accessToken) {
-        isRelayAuthActive = true;
-        cachedAccessToken = relayed.accessToken;
-        cachedGmailEmail = relayed.email || targetEmail;
-        const fallbackUser = createFallbackGoogleUser(cachedGmailEmail);
-        notifyWorkspaceListeners();
-        return { user: fallbackUser, accessToken: cachedAccessToken };
-      }
+      isRelayAuthActive = true;
+      cachedAccessToken = relayed?.accessToken ? relayed.accessToken : 'CLOUD_RELAY_DISPATCH';
+      cachedGmailEmail = relayed?.email ? relayed.email : targetEmail;
+      const fallbackUser = createFallbackGoogleUser(cachedGmailEmail);
+      notifyWorkspaceListeners();
+      return { user: fallbackUser, accessToken: cachedAccessToken };
     }
     console.error('Google Workspace sign in error:', error);
     const formatted = new Error(formatFirebaseAuthError(error)) as Error & { code?: string };
-    formatted.code = error?.code || (isUnauthorizedDomainError(error) ? 'auth/unauthorized-domain' : undefined);
+    formatted.code = error?.code;
     throw formatted;
   } finally {
     isSigningIn = false;

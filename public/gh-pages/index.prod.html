@@ -78,8 +78,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="./assets/index-ChBaRXyx.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-rSJGjgpx.css">
+    <script type="module" crossorigin src="./assets/bundle.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/bundle.css">
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased font-sans selection:bg-slate-900 selection:text-white">
     <div id="root"></div>
@@ -87,22 +87,35 @@
       // Fallback loader strictly for GitHub Pages when deployed directly from the repository root branch
       (function () {
         if (window.location.hostname.indexOf('github.io') === -1) return;
+        function loadFallbackBundle() {
+          if (window.__NEXGRID_FALLBACK_LOADED__) return;
+          var root = document.getElementById('root');
+          if (root && root.children && root.children.length > 0) return;
+          window.__NEXGRID_FALLBACK_LOADED__ = true;
+          var link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = './public/gh-pages/bundle.css?v=20261027_3';
+          document.head.appendChild(link);
+
+          var script = document.createElement('script');
+          script.type = 'module';
+          script.src = './public/gh-pages/bundle.js?v=20261027_3';
+          document.body.appendChild(script);
+        }
+        var hasBuiltScript = false;
         var scripts = document.getElementsByTagName('script');
         for (var i = 0; i < scripts.length; i++) {
           var src = scripts[i].getAttribute('src') || '';
-          if (src.indexOf('assets/index-') !== -1) return;
+          if (src.indexOf('assets/bundle.js') !== -1 || src.indexOf('assets/index-') !== -1) {
+            hasBuiltScript = true;
+            break;
+          }
         }
-        if (window.__NEXGRID_FALLBACK_LOADED__) return;
-        window.__NEXGRID_FALLBACK_LOADED__ = true;
-        var link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = './public/gh-pages/bundle.css?v=20261027_2';
-        document.head.appendChild(link);
-
-        var script = document.createElement('script');
-        script.type = 'module';
-        script.src = './public/gh-pages/bundle.js?v=20261027_2';
-        document.body.appendChild(script);
+        if (!hasBuiltScript) {
+          loadFallbackBundle();
+        } else {
+          setTimeout(loadFallbackBundle, 1800);
+        }
       })();
     </script>
   </body>

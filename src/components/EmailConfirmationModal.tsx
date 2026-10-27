@@ -358,15 +358,16 @@ export const EmailConfirmationModal: React.FC<EmailConfirmationModalProps> = ({
                         )
                       </span>
                     </button>
-                    <a
-                      href={FIREBASE_AUTH_SETTINGS_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(FIREBASE_AUTH_SETTINGS_URL);
+                      }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white font-semibold"
                     >
-                      <span>Open Firebase Authorized Domains</span>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy Firebase Console URL</span>
+                    </button>
                   </div>
                 </div>
               )}
