@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NexGrid Admin Portal</title>
+    <meta name="description" content="Secure Customer Management System (CMS) for NexGrid Digital Systems to manage customers, domains, invoices, quotations, payments, and automated SMS Ethiopia notifications." />
+    <meta property="og:title" content="NexGrid Admin Portal" />
+    <meta property="og:description" content="Secure Customer Management System (CMS) for NexGrid Digital Systems to manage customers, domains, invoices, quotations, payments, and automated SMS Ethiopia notifications." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="./assets/aistudio/logo_95537d8d.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/png" sizes="512x512" href="./favicon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./assets/aistudio/nexgrid_icon.png" />
+    <link rel="shortcut icon" href="./favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png" />
+    <script>
+      // In AI Studio, HMR is disabled. Handle Vite Module Runner transport gracefully
+      // to eliminate "WebSocket closed without opened." errors behind Cloud Run proxies.
+      (function () {
+        var OriginalWebSocket = window.WebSocket;
+        if (OriginalWebSocket) {
+          window.WebSocket = function (url, protocols) {
+            var urlStr = String(url || '');
+            if (
+              protocols === 'vite-hmr' ||
+              urlStr.indexOf('vite-hmr') !== -1 ||
+              urlStr.indexOf('24678') !== -1 ||
+              (urlStr.indexOf('token=') !== -1 && urlStr.indexOf('/@vite') !== -1)
+            ) {
+              return {
+                readyState: 1,
+                OPEN: 1,
+                CLOSED: 3,
+                CONNECTING: 0,
+                CLOSING: 2,
+                addEventListener: function (type, listener) {
+                  if (type === 'open' && typeof listener === 'function') {
+                    setTimeout(listener, 0);
+                  }
+                },
+                removeEventListener: function () {},
+                dispatchEvent: function () { return true; },
+                send: function () {},
+                close: function () {},
+              };
+            }
+            return new OriginalWebSocket(url, protocols);
+          };
+          window.WebSocket.prototype = OriginalWebSocket.prototype;
+          window.WebSocket.CONNECTING = 0;
+          window.WebSocket.OPEN = 1;
+          window.WebSocket.CLOSING = 2;
+          window.WebSocket.CLOSED = 3;
+        }
+
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event.reason;
+          if (
+            reason &&
+            (String(reason.message || '').indexOf('WebSocket') !== -1 ||
+              String(reason.stack || '').indexOf('@vite/client') !== -1 ||
+              String(reason.message || '').indexOf('vite-hmr') !== -1)
+          ) {
+            event.preventDefault();
+          }
+        });
+        window.addEventListener('error', function (event) {
+          if (
+            (event.filename && event.filename.indexOf('@vite/client') !== -1) ||
+            (event.message && event.message.indexOf('WebSocket') !== -1)
+          ) {
+            event.preventDefault();
+          }
+        });
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="./assets/bundle.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/bundle.css">
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased font-sans selection:bg-slate-900 selection:text-white">
+    <div id="root"></div>
+    <script>
+      // Fallback loader strictly for GitHub Pages when deployed directly from the repository root branch
+      (function () {
+        if (window.location.hostname.indexOf('github.io') === -1) return;
+        function loadFallbackBundle() {
+          if (window.__NEXGRID_FALLBACK_LOADED__) return;
+          var root = document.getElementById('root');
+          if (root && root.children && root.children.length > 0) return;
+          window.__NEXGRID_FALLBACK_LOADED__ = true;
+          var link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = './public/gh-pages/bundle.css?v=20261027_3';
+          document.head.appendChild(link);
+
+          var script = document.createElement('script');
+          script.type = 'module';
+          script.src = './public/gh-pages/bundle.js?v=20261027_3';
+          document.body.appendChild(script);
+        }
+        var hasBuiltScript = false;
+        var scripts = document.getElementsByTagName('script');
+        for (var i = 0; i < scripts.length; i++) {
+          var src = scripts[i].getAttribute('src') || '';
+          if (src.indexOf('assets/bundle.js') !== -1 || src.indexOf('assets/index-') !== -1) {
+            hasBuiltScript = true;
+            break;
+          }
+        }
+        if (!hasBuiltScript) {
+          loadFallbackBundle();
+        } else {
+          setTimeout(loadFallbackBundle, 1800);
+        }
+      })();
+    </script>
+  </body>
+</html>

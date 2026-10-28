@@ -230,7 +230,7 @@ export default function App() {
           )}
 
           {currentTab === 'reports' && (
-            <ReportsView key={`rep-${refreshKey}`} />
+            <ReportsView key={`rep-${refreshKey}`} currentAdmin={admin} />
           )}
 
           {currentTab === 'users' && (

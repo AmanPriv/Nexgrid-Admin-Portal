@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   TrendingUp,
   Download,
@@ -14,41 +14,169 @@ import {
   CheckCircle2,
   Clock,
   AlertTriangle,
+  CalendarClock,
+  Share2,
+  Shield,
+  Lock,
+  Layers,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
-import { AppSettings } from '../types.ts';
+import {
+  AdminUser,
+  AppSettings,
+  Customer,
+  Domain,
+  Invoice,
+  Payment,
+  Quotation,
+} from '../types.ts';
 import {
   generateExecutiveReportPdf,
   resolveCompanyProfile,
   DEFAULT_COMPANY_PROFILE,
 } from '../utils/pdfGenerator.ts';
+import { exportReportToExcel } from '../utils/reportExports.ts';
 import { PaymentQrCode } from '../components/PaymentQrCode.tsx';
+import { EmailConfirmationModal } from '../components/EmailConfirmationModal.tsx';
+import {
+  REPORT_CATEGORIES,
+  ReportCategoryId,
+  ReportFilterState,
+  ReportRole,
+  ScheduledReportConfig,
+} from '../types/reporting.ts';
+import { ReportFilterBar } from '../components/reports/ReportFilterBar.tsx';
+import { ExecutiveDashboardTab } from '../components/reports/ExecutiveDashboardTab.tsx';
+import { ScheduledReportsModal } from '../components/reports/ScheduledReportsModal.tsx';
+import { ClientSafeShareModal } from '../components/reports/ClientSafeShareModal.tsx';
 
-export const ReportsView: React.FC = () => {
+interface ReportsViewProps {
+  currentAdmin?: AdminUser | null;
+}
+
+const SCHEDULES_STORAGE_KEY = 'nexgrid_report_schedules_v1';
+
+const DEFAULT_SCHEDULES: ScheduledReportConfig[] = [
+  {
+    id: 'SCH-DEFAULT-1',
+    name: 'Weekly Executive & Financial Settlement Digest',
+    frequency: 'weekly',
+    dayOfWeekOrMonth: 'Monday',
+    timeOfDay: '08:30',
+    recipients: ['nexgriddigital@gmail.com'],
+    categories: ['executive', 'financial'],
+    format: 'pdf',
+    includeChartsSummary: true,
+    clientSafeMode: false,
+    enabled: true,
+    createdAt: '2026-10-01T08:00:00.000Z',
+  },
+];
+
+function createDefaultFilters(): ReportFilterState {
+  const today = new Date();
+  const sixMonthsAgo = new Date(today.getTime() - 180 * 86400000);
+  return {
+    datePreset: '6m',
+    startDate: sixMonthsAgo.toISOString().slice(0, 10),
+    endDate: today.toISOString().slice(0, 10),
+    clientId: 'all',
+    projectId: 'all',
+    teamMember: 'all',
+    serviceType: 'all',
+    status: 'all',
+  };
+}
+
+export const ReportsView: React.FC<ReportsViewProps> = ({ currentAdmin }) => {
   const [data, setData] = useState<{
     monthlyTrend: { month: string; invoiced: number; collected: number }[];
     smsStats: { total: number; sent: number; delivered: number; failed: number; queued: number };
     domainHealth: { total: number; active: number; expiringSoon: number; expired: number };
     financials: any;
   } | null>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [domains, setDomains] = useState<Domain[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+
   const [companySettings, setCompanySettings] = useState<AppSettings['general']>(DEFAULT_COMPANY_PROFILE as any);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+
+  // Phase 1 Reporting Module State
+  const [activeCategory, setActiveCategory] = useState<ReportCategoryId>('executive');
+  const [activeRoleLens, setActiveRoleLens] = useState<ReportRole>(
+    currentAdmin?.role === 'super_admin' ? 'super_admin' : 'admin'
+  );
+  const [filters, setFilters] = useState<ReportFilterState>(createDefaultFilters);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [showClientShareModal, setShowClientShareModal] = useState(false);
+
+  const [schedules, setSchedules] = useState<ScheduledReportConfig[]>(() => {
+    try {
+      const raw = localStorage.getItem(SCHEDULES_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : DEFAULT_SCHEDULES;
+    } catch {
+      return DEFAULT_SCHEDULES;
+    }
+  });
+
+  const [emailModalConfig, setEmailModalConfig] = useState<{
+    isOpen: boolean;
+    recipientEmail: string;
+    recipientName: string;
+    customerId?: string;
+    subject: string;
+    body: string;
+    title: string;
+  }>({
+    isOpen: false,
+    recipientEmail: '',
+    recipientName: '',
+    subject: '',
+    body: '',
+    title: '',
+  });
+
+  const handleSaveSchedules = (next: ScheduledReportConfig[]) => {
+    setSchedules(next);
+    try {
+      localStorage.setItem(SCHEDULES_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // ignore storage errors
+    }
+  };
 
   const loadReports = async () => {
     setLoading(true);
+    setErrorMessage(null);
     try {
-      const [res, settingsRes] = await Promise.all([
+      const [res, settingsRes, custRes, domRes, invRes, payRes, quoRes] = await Promise.all([
         api.getReports(),
         api.getSettings().catch(() => null),
+        api.getCustomers().catch(() => ({ customers: [] })),
+        api.getDomains().catch(() => ({ domains: [] })),
+        api.getInvoices().catch(() => ({ invoices: [] })),
+        api.getPayments().catch(() => ({ payments: [] })),
+        api.getQuotations().catch(() => ({ quotations: [] })),
       ]);
       setData(res);
+      setCustomers(custRes.customers || []);
+      setDomains(domRes.domains || []);
+      setInvoices(invRes.invoices || []);
+      setPayments(payRes.payments || []);
+      setQuotations(quoRes.quotations || []);
+
       if (settingsRes?.settings?.general) {
         const resolved = resolveCompanyProfile(settingsRes.settings.general);
         setCompanySettings({ ...settingsRes.settings.general, ...resolved });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to load reports:', err);
+      setErrorMessage(err?.message || 'Failed to load reporting metrics.');
     } finally {
       setLoading(false);
     }
@@ -71,6 +199,41 @@ export const ReportsView: React.FC = () => {
     currency: company.currency,
   };
 
+  // RBAC permitted categories for the active role lens
+  const permittedCategories = useMemo(() => {
+    return REPORT_CATEGORIES.filter((cat) => cat.allowedRoles.includes(activeRoleLens));
+  }, [activeRoleLens]);
+
+  useEffect(() => {
+    if (!permittedCategories.some((c) => c.id === activeCategory)) {
+      setActiveCategory(permittedCategories[0]?.id || 'executive');
+    }
+  }, [permittedCategories, activeCategory]);
+
+  // Projects list derived from active client engagements + domains (TODO: connect to dedicated `projects` collection in Phase 2)
+  const projectsList = useMemo(() => {
+    const derived = customers.map((c, idx) => ({
+      id: `PRJ-${101 + idx}`,
+      name: `${c.businessName} — Digital Infrastructure & Portal`,
+    }));
+    if (derived.length === 0) {
+      return [
+        { id: 'PRJ-101', name: 'Sappy Stationary — POS & Domain Portal' },
+        { id: 'PRJ-102', name: 'Rahel Stationary — Cloud ERP & .shop Registry' },
+      ];
+    }
+    return derived;
+  }, [customers]);
+
+  const teamMembersList = useMemo(() => {
+    return [
+      currentAdmin?.fullName || 'Amanuel Getahun (Lead Architect)',
+      'Dawit Tadesse (Senior Backend Engineer)',
+      'Meron Alemu (QA & DevOps Lead)',
+      'Yonas Kebede (Client Solutions & Support)',
+    ];
+  }, [currentAdmin]);
+
   const downloadReportPdf = () => {
     const reportPayload = data || {
       monthlyTrend: [],
@@ -80,6 +243,23 @@ export const ReportsView: React.FC = () => {
     };
     const pdf = generateExecutiveReportPdf(reportPayload, companySettings);
     pdf.save(`nexgrid-financial-summary-${new Date().toISOString().slice(0, 10)}.pdf`);
+  };
+
+  const downloadReportExcel = () => {
+    exportReportToExcel({
+      reportTitle: 'Executive Financial Summary & Operations Report',
+      subtitle: `Date Range: ${filters.startDate} to ${filters.endDate}`,
+      filenamePrefix: 'nexgrid-executive-financial-summary',
+      headers: ['Month / Period', `Invoiced (${company.currency})`, `Collected (${company.currency})`],
+      rows: (data?.monthlyTrend || []).map((m) => [m.month, m.invoiced, m.collected]),
+      kpis: [
+        { label: 'Total Invoiced Revenue', value: `${Number(fin.totalInvoiced || 0).toLocaleString()} ${company.currency}` },
+        { label: 'Confirmed Collections', value: `${Number(fin.totalReceived || 0).toLocaleString()} ${company.currency}` },
+        { label: 'Outstanding Receivables', value: `${Number(fin.outstandingReceivables || 0).toLocaleString()} ${company.currency}` },
+        { label: 'Critical Overdue Balance', value: `${Number(fin.overdueAmount || 0).toLocaleString()} ${company.currency}` },
+      ],
+      companySettings,
+    });
   };
 
   const downloadReportCsv = () => {
@@ -126,43 +306,120 @@ export const ReportsView: React.FC = () => {
     a.click();
   };
 
-  const maxFinancial =
-    data?.monthlyTrend.reduce((max, m) => Math.max(max, m.invoiced, m.collected), 1) || 1;
+  const handleTriggerScheduledDispatch = (sch: ScheduledReportConfig) => {
+    setShowScheduleModal(false);
+    setEmailModalConfig({
+      isOpen: true,
+      recipientEmail: sch.recipients[0] || company.businessEmail,
+      recipientName: sch.name,
+      subject: `[Scheduled Report] ${sch.name} — ${new Date().toISOString().slice(0, 10)}`,
+      body: [
+        `Hello,`,
+        ``,
+        `Attached is your scheduled "${sch.name}" (${sch.frequency.toUpperCase()} — ${sch.format.toUpperCase()}) generated by ${company.businessName}.`,
+        ``,
+        `Executive Highlights:`,
+        `• Total Invoiced Revenue: ${Number(fin.totalInvoiced || 0).toLocaleString()} ${company.currency}`,
+        `• Confirmed Collections: ${Number(fin.totalReceived || 0).toLocaleString()} ${company.currency}`,
+        `• Outstanding Receivables: ${Number(fin.outstandingReceivables || 0).toLocaleString()} ${company.currency}`,
+        `• Managed Domains: ${data?.domainHealth?.total || domains.length}`,
+        ``,
+        `Best regards,`,
+        `${company.businessName} Reporting Engine`,
+      ].join('\n'),
+      title: `Dispatch Scheduled Report — ${sch.name}`,
+    });
+  };
+
+  const currentCategoryMeta =
+    REPORT_CATEGORIES.find((c) => c.id === activeCategory) || REPORT_CATEGORIES[0];
 
   return (
-    <div className="space-y-6">
-      {/* Header & Financial Summary Export Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5">
+      {/* Top Header, RBAC Role Switcher & Global Export/Schedule/Share Actions */}
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-slate-900 tracking-tight">Executive Reports & Financial Summary</h2>
+          <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+            Enterprise Reporting & Analytics Center
+          </h2>
           <p className="text-xs text-slate-500">
-            Downloadable PDF & CSV financial summaries, settlement reconciliation, and domain/gateway analytics
+            Executive KPIs, financial reconciliation, delivery tracking, scheduled email digests, and client-safe exports
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* RBAC Role Lens Selector */}
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs">
+            <Shield className="w-3.5 h-3.5 text-slate-600" />
+            <span className="text-slate-500 font-medium">Role Access:</span>
+            <select
+              value={activeRoleLens}
+              onChange={(e) => setActiveRoleLens(e.target.value as ReportRole)}
+              className="bg-transparent font-bold text-slate-900 focus:outline-none cursor-pointer"
+            >
+              <option value="super_admin">Admin (All 9 Categories)</option>
+              <option value="finance">Finance (Executive, Financial, Sales)</option>
+              <option value="project_manager">Project Manager (Delivery, Time, QA, Support)</option>
+              <option value="staff">Staff (Own Projects, Time, QA, Support)</option>
+            </select>
+          </div>
+
           <button
+            type="button"
+            onClick={() => setShowScheduleModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-colors"
+          >
+            <CalendarClock className="w-3.5 h-3.5 text-blue-600" />
+            <span>Scheduled Emails ({schedules.filter((s) => s.enabled).length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowClientShareModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold shadow-2xs transition-colors"
+          >
+            <Share2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Share Client-Safe</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setShowPreviewModal(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-colors"
           >
             <Eye className="w-3.5 h-3.5 text-slate-500" />
-            <span>Preview Report</span>
+            <span>Preview</span>
           </button>
+
           <button
+            type="button"
             onClick={downloadReportPdf}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-2xs transition-colors"
           >
             <FileText className="w-3.5 h-3.5" />
-            <span>Export PDF Summary</span>
+            <span>PDF</span>
           </button>
+
           <button
+            type="button"
+            onClick={downloadReportExcel}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-xs font-semibold shadow-2xs transition-colors"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Excel</span>
+          </button>
+
+          <button
+            type="button"
             onClick={downloadReportCsv}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-2xs transition-colors"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Export CSV Summary</span>
+            <Download className="w-3.5 h-3.5 text-emerald-400" />
+            <span>CSV</span>
           </button>
+
           <button
+            type="button"
             onClick={loadReports}
             title="Refresh Report Data"
             className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
@@ -231,194 +488,168 @@ export const ReportsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Executive Financial Summary KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-1">
-          <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
-            <span>Total Invoiced Revenue</span>
-            <DollarSign className="w-4 h-4 text-slate-400" />
-          </div>
-          <div className="text-lg font-extrabold font-mono text-slate-900">
-            {Number(fin.totalInvoiced || 0).toLocaleString()} {company.currency}
-          </div>
-          <div className="text-[11px] text-slate-500">
-            Pending Quotes: {Number(fin.pendingQuotationsCount || 0)} ({Number(fin.pendingQuotationsValue || 0).toLocaleString()} {company.currency})
-          </div>
-        </div>
+      {/* Category Navigation Tabs (Role-Filtered) */}
+      <div className="bg-white rounded-xl border border-slate-200 p-2 shadow-2xs">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          {REPORT_CATEGORIES.map((cat) => {
+            const allowed = cat.allowedRoles.includes(activeRoleLens);
+            const isActive = activeCategory === cat.id;
 
-        <div className="bg-white rounded-xl border border-emerald-200 p-4 shadow-2xs space-y-1">
-          <div className="flex items-center justify-between text-xs text-emerald-700 font-medium">
-            <span>Confirmed Collections</span>
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="text-lg font-extrabold font-mono text-emerald-700">
-            {Number(fin.totalReceived || 0).toLocaleString()} {company.currency}
-          </div>
-          <div className="text-[11px] text-slate-500">
-            Verified bank & Telebirr settlements
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-amber-200 p-4 shadow-2xs space-y-1">
-          <div className="flex items-center justify-between text-xs text-amber-700 font-medium">
-            <span>Outstanding Receivables</span>
-            <Clock className="w-4 h-4 text-amber-600" />
-          </div>
-          <div className="text-lg font-extrabold font-mono text-amber-700">
-            {Number(fin.outstandingReceivables || 0).toLocaleString()} {company.currency}
-          </div>
-          <div className="text-[11px] text-slate-500">
-            {Number(fin.unpaidInvoiceCount || 0)} unpaid open invoice(s)
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-rose-200 p-4 shadow-2xs space-y-1">
-          <div className="flex items-center justify-between text-xs text-rose-700 font-medium">
-            <span>Critical Overdue Balance</span>
-            <AlertTriangle className="w-4 h-4 text-rose-600" />
-          </div>
-          <div className="text-lg font-extrabold font-mono text-rose-700">
-            {Number(fin.overdueAmount || 0).toLocaleString()} {company.currency}
-          </div>
-          <div className="text-[11px] text-slate-500">
-            {Number(fin.overdueInvoiceCount || 0)} overdue invoice(s)
-          </div>
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                disabled={!allowed}
+                onClick={() => allowed && setActiveCategory(cat.id)}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                  isActive
+                    ? 'bg-slate-900 text-white shadow-2xs'
+                    : allowed
+                    ? 'text-slate-700 hover:bg-slate-100'
+                    : 'text-slate-300 cursor-not-allowed'
+                }`}
+                title={allowed ? cat.description : `Restricted for role: ${activeRoleLens}`}
+              >
+                {!allowed && <Lock className="w-3 h-3 text-slate-300" />}
+                <span>{cat.shortLabel}</span>
+                {cat.phase > 1 && (
+                  <span
+                    className={`text-[10px] font-mono ${
+                      isActive ? 'text-blue-300' : 'text-slate-400'
+                    }`}
+                  >
+                    · P{cat.phase}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* 1. Monthly Revenue & Settlement Trends Chart */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      {/* Global Report Filters Bar */}
+      <ReportFilterBar
+        filters={filters}
+        onChange={setFilters}
+        onReset={() => setFilters(createDefaultFilters())}
+        customers={customers}
+        projectsList={projectsList}
+        teamMembersList={teamMembersList}
+      />
+
+      {/* Error State */}
+      {errorMessage && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-blue-600" />
-            <h3 className="text-sm font-bold text-slate-900">
-              Monthly Invoiced vs. Verified Collected Revenue (Last 6 Months)
-            </h3>
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{errorMessage}</span>
           </div>
-          <div className="flex items-center gap-4 text-xs font-medium">
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-xs bg-slate-300" />
-              <span className="text-slate-600">Invoiced</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-xs bg-emerald-600" />
-              <span className="text-slate-900 font-semibold">Collected Revenue</span>
-            </div>
+          <button
+            type="button"
+            onClick={loadReports}
+            className="px-3 py-1 rounded bg-white border border-rose-200 font-semibold hover:bg-rose-100"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && !data ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center space-y-3">
+          <div className="w-7 h-7 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="text-xs font-medium text-slate-600">
+            Aggregating Executive KPIs, Financial Ledgers & Domain Telemetry...
           </div>
         </div>
+      ) : activeCategory === 'executive' ? (
+        <ExecutiveDashboardTab
+          data={data}
+          customers={customers}
+          domains={domains}
+          invoices={invoices}
+          payments={payments}
+          quotations={quotations}
+          filters={filters}
+          companySettings={companySettings}
+        />
+      ) : (
+        /* Phase 2 & Phase 3 Category Architecture Preview */
+        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs text-blue-700 font-semibold">
+                <Layers className="w-4 h-4" />
+                <span>Phase {currentCategoryMeta.phase} Reporting Module Ready for Activation</span>
+              </div>
+              <h3 className="text-base font-bold text-slate-900">{currentCategoryMeta.label}</h3>
+              <p className="text-xs text-slate-500">{currentCategoryMeta.description}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveCategory('executive')}
+              className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shrink-0"
+            >
+              Return to Executive Dashboard (Phase 1)
+            </button>
+          </div>
 
-        {/* Visual Bar Graph */}
-        <div className="pt-4 pb-2">
-          <div className="grid grid-cols-6 gap-3 sm:gap-6 h-52 items-end border-b border-slate-200 pb-2">
-            {data?.monthlyTrend.map((m, idx) => {
-              const invoicedHeight = Math.max(8, (m.invoiced / maxFinancial) * 100);
-              const collectedHeight = Math.max(8, (m.collected / maxFinancial) * 100);
-
-              return (
-                <div key={idx} className="flex flex-col items-center gap-1.5 h-full justify-end group">
-                  <div className="w-full flex items-end justify-center gap-1.5 h-full pb-1">
-                    {/* Invoiced Bar */}
-                    <div
-                      style={{ height: `${invoicedHeight}%` }}
-                      className="w-1/2 max-w-[28px] bg-slate-200 hover:bg-slate-300 rounded-t-xs transition-all relative"
-                      title={`Invoiced: ${m.invoiced.toLocaleString()} ${company.currency}`}
-                    />
-                    {/* Collected Bar */}
-                    <div
-                      style={{ height: `${collectedHeight}%` }}
-                      className="w-1/2 max-w-[28px] bg-emerald-600 hover:bg-emerald-500 rounded-t-xs transition-all relative"
-                      title={`Collected: ${m.collected.toLocaleString()} ${company.currency}`}
-                    />
-                  </div>
-                  <div className="text-[11px] font-medium text-slate-600 whitespace-nowrap">
-                    {m.month}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
+            <div className="font-bold text-slate-900">
+              Phase 1 Complete — Awaiting Confirmation for Phase {currentCategoryMeta.phase}
+            </div>
+            <p className="leading-relaxed">
+              Per your phased rollout plan, <strong>Phase 1</strong> (Page structure, Global Filters, PDF/Excel/CSV Exports, Scheduled Email Reports, Client-Safe Sharing, RBAC Role Controls, and the complete <strong>Executive Dashboard</strong>) is live and active. Confirm when you are ready to proceed to <strong>Phase 2</strong> (Financial & Project Delivery Reports) and <strong>Phase 3</strong> (Time & Resource, Sales & Client, Team & HR, Quality & Technical, Support & Maintenance, and Admin & Compliance).
+            </p>
           </div>
         </div>
+      )}
 
-        <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between text-xs gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-slate-500">Total Confirmed Collections:</span>
-            <strong className="font-mono text-emerald-700">
-              {Number(fin.totalReceived || 0).toLocaleString()} {company.currency}
-            </strong>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-slate-500">Current Outstanding Receivables:</span>
-            <strong className="font-mono text-amber-700">
-              {Number(fin.outstandingReceivables || 0).toLocaleString()} {company.currency}
-            </strong>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-slate-500">Critical Overdue:</span>
-            <strong className="font-mono text-rose-700">
-              {Number(fin.overdueAmount || 0).toLocaleString()} {company.currency}
-            </strong>
-          </div>
-        </div>
-      </div>
+      {/* Scheduled Email Reports Modal */}
+      <ScheduledReportsModal
+        isOpen={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+        schedules={schedules}
+        onSaveSchedules={handleSaveSchedules}
+        onTriggerEmailDispatch={handleTriggerScheduledDispatch}
+      />
 
-      {/* 2. Operations & Gateway Breakdown */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-        {/* Domain Portfolio Health */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-3">
-          <div className="flex items-center gap-2">
-            <Globe className="w-4 h-4 text-blue-600" />
-            <h3 className="text-sm font-bold text-slate-900">Domain Registry Portfolio Health</h3>
-          </div>
-          <div className="space-y-2.5 text-xs pt-1">
-            <div className="flex items-center justify-between p-2 rounded bg-slate-50">
-              <span className="text-slate-600">Active & Up-to-date Domains</span>
-              <strong className="font-mono text-slate-900">
-                {data?.domainHealth.active || 0}
-              </strong>
-            </div>
-            <div className="flex items-center justify-between p-2 rounded bg-amber-50 text-amber-900">
-              <span>Expiring within 30 Days (Reminders Triggered)</span>
-              <strong className="font-mono">{data?.domainHealth.expiringSoon || 0}</strong>
-            </div>
-            <div className="flex items-center justify-between p-2 rounded bg-rose-50 text-rose-900">
-              <span>Expired Domains in Grace Period</span>
-              <strong className="font-mono">{data?.domainHealth.expired || 0}</strong>
-            </div>
-            <div className="flex items-center justify-between p-2 rounded bg-slate-100 font-semibold text-slate-900">
-              <span>Total Managed ccTLD & gTLD Domains</span>
-              <strong className="font-mono">{data?.domainHealth.total || 0}</strong>
-            </div>
-          </div>
-        </div>
+      {/* Client-Safe Report Share Modal */}
+      <ClientSafeShareModal
+        isOpen={showClientShareModal}
+        onClose={() => setShowClientShareModal(false)}
+        customers={customers}
+        invoices={invoices}
+        domains={domains}
+        companySettings={companySettings}
+        onSendEmailToClient={(params) => {
+          setShowClientShareModal(false);
+          setEmailModalConfig({
+            isOpen: true,
+            recipientEmail: params.recipientEmail,
+            recipientName: params.recipientName,
+            customerId: params.customerId,
+            subject: params.subject,
+            body: params.body,
+            title: `Send Client-Safe Report — ${params.recipientName}`,
+          });
+        }}
+      />
 
-        {/* SMS Ethiopia Notification Performance */}
-        <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-3">
-          <div className="flex items-center gap-2">
-            <Radio className="w-4 h-4 text-emerald-600" />
-            <h3 className="text-sm font-bold text-slate-900">SMS Ethiopia Delivery Analytics</h3>
-          </div>
-          <div className="space-y-2.5 text-xs pt-1">
-            <div className="flex items-center justify-between p-2 rounded bg-emerald-50 text-emerald-900">
-              <span>Delivered Messages</span>
-              <strong className="font-mono">{data?.smsStats.delivered || 0}</strong>
-            </div>
-            <div className="flex items-center justify-between p-2 rounded bg-blue-50 text-blue-900">
-              <span>Sent / Dispatched</span>
-              <strong className="font-mono">{data?.smsStats.sent || 0}</strong>
-            </div>
-            <div className="flex items-center justify-between p-2 rounded bg-rose-50 text-rose-900">
-              <span>Failed Dispatches</span>
-              <strong className="font-mono">{data?.smsStats.failed || 0}</strong>
-            </div>
-            <div className="flex items-center justify-between p-2 rounded bg-slate-100 font-semibold text-slate-900">
-              <span>Total Dispatches Recorded</span>
-              <strong className="font-mono">{data?.smsStats.total || 0}</strong>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Gmail / Email Dispatch Modal */}
+      <EmailConfirmationModal
+        isOpen={emailModalConfig.isOpen}
+        onClose={() => setEmailModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        recipientEmail={emailModalConfig.recipientEmail}
+        recipientName={emailModalConfig.recipientName}
+        customerId={emailModalConfig.customerId}
+        initialSubject={emailModalConfig.subject}
+        initialBody={emailModalConfig.body}
+        messageType="custom"
+        title={emailModalConfig.title}
+      />
 
-      {/* Interactive Financial Summary Document Preview Modal */}
+      {/* Existing Interactive Financial Summary Document Preview Modal */}
       {showPreviewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs">
           <div className="bg-white rounded-xl max-w-3xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden text-slate-900">
