@@ -50,6 +50,9 @@ jobs:
             cp -r public/assets/* dist/assets/ 2>/dev/null || true
           fi
           cp public/favicon.* public/apple-touch-icon.png dist/ 2>/dev/null || true
+          if [ -f "public/CNAME" ]; then
+            cp public/CNAME dist/CNAME
+          fi
           touch dist/.nojekyll
 
       - name: Upload Pages artifact

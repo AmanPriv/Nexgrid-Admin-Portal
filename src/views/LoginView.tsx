@@ -395,13 +395,13 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 selection:bg-blue-600 selection:text-white">
+    <div className="min-h-[100dvh] bg-slate-950 flex flex-col justify-center items-center px-4 py-6 sm:p-6 selection:bg-blue-600 selection:text-white overflow-x-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-slate-950 to-slate-950 pointer-events-none" />
 
       <div className="relative w-full max-w-lg z-10">
         {/* Brand Header */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-28 h-16 rounded-2xl bg-white p-1.5 shadow-xl shadow-blue-950/50 mb-3 ring-1 ring-slate-200/80 overflow-hidden">
+        <div className="text-center mb-5 sm:mb-6">
+          <div className="inline-flex items-center justify-center w-24 h-14 sm:w-28 sm:h-16 rounded-2xl bg-white p-1.5 shadow-xl shadow-blue-950/50 mb-3 ring-1 ring-slate-200/80 overflow-hidden">
             <img
               src="./assets/aistudio/logo_95537d8d.jpg"
               onError={(e) => {
@@ -412,7 +412,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               className="w-full h-full object-contain"
             />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
             NexGrid Digital Systems
           </h1>
           <p className="text-xs text-slate-400 mt-1">
@@ -1057,9 +1057,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         )}
 
         {/* Security & System Architecture Footer */}
-        <div className="mt-8 text-center text-[11px] text-slate-500 space-y-1">
+        <div className="mt-6 sm:mt-8 text-center text-[11px] text-slate-500 space-y-1">
           <p>© {new Date().getFullYear()} NexGrid Digital Systems. All rights reserved.</p>
-          <p className="flex items-center justify-center gap-2 text-slate-600">
+          <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-slate-600">
             <span>OWASP Scrypt</span>
             <span>•</span>
             <span>RFC 6238 TOTP</span>

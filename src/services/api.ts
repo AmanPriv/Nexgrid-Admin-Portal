@@ -71,9 +71,10 @@ export function setCustomApiUrl(url: string | null) {
   }
 }
 
-function isStaticHostWithoutCustomBackend(): boolean {
+let detectedStaticHostRuntime = false;
+
+export function isStaticHostWithoutCustomBackend(): boolean {
   if (typeof window === 'undefined') return false;
-  // Clear any legacy sticky sessionStorage flag that could trap the tab in static mode
   try {
     sessionStorage.removeItem('nexgrid_static_mode');
   } catch {
@@ -81,8 +82,14 @@ function isStaticHostWithoutCustomBackend(): boolean {
   }
   const apiBase = getApiBase();
   if (apiBase) return false;
-  const host = window.location.hostname;
-  return host.endsWith('.github.io') || window.location.protocol === 'file:';
+  if (detectedStaticHostRuntime) return true;
+  const host = window.location.hostname.toLowerCase();
+  return (
+    host.endsWith('.github.io') ||
+    host.endsWith('.nexgrid.lol') ||
+    host === 'nexgrid.lol' ||
+    window.location.protocol === 'file:'
+  );
 }
 
 async function runStaticFallback<T>(endpoint: string, options: RequestInit): Promise<T> {
@@ -131,6 +138,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       headers,
     });
   } catch (netErr: any) {
+    // If no custom API base is configured and relative /api fetch fails on a static host, use static fallback
+    if (!apiBase && endpoint.startsWith('/api/')) {
+      detectedStaticHostRuntime = true;
+      return runStaticFallback<T>(endpoint, options);
+    }
     throw new Error(
       `Cannot connect to NexGrid backend API at ${fullUrl}. Ensure your server is running (${netErr.message}).`
     );
@@ -150,6 +162,12 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   if (contentType.includes('application/json')) {
     data = await response.json().catch(() => ({}));
   } else {
+    // When deployed to a custom subdomain on GitHub Pages / Cloudflare Pages / Netlify without a custom backend URL,
+    // relative /api/* requests return an HTML 404/405 page. Automatically switch to the Cloud-Synced Static Fallback Engine.
+    if (!apiBase && endpoint.startsWith('/api/') && (response.status === 404 || response.status === 405 || contentType.includes('text/html'))) {
+      detectedStaticHostRuntime = true;
+      return runStaticFallback<T>(endpoint, options);
+    }
     if (!response.ok) {
       throw new Error(
         `Backend API returned HTTP ${response.status} (${response.statusText}).`

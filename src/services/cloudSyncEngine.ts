@@ -246,11 +246,14 @@ export async function pushCloudDatabaseState(dbState: any): Promise<void> {
   }
 
   // 3. Push to Cloud Relay endpoints (/api/public/cloud-state)
-  const isGithubPages =
-    typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
+  const isStaticPages =
+    typeof window !== 'undefined' &&
+    (window.location.hostname.endsWith('.github.io') ||
+      window.location.hostname.endsWith('.nexgrid.lol') ||
+      window.location.hostname === 'nexgrid.lol');
 
   for (const endpoint of CLOUD_STATE_ENDPOINTS) {
-    if (endpoint.startsWith('/') && isGithubPages) continue;
+    if (endpoint.startsWith('/') && isStaticPages) continue;
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -314,11 +317,14 @@ export async function pullCloudDatabaseState(): Promise<any | null> {
   let mergedDb = localDb;
 
   // 1. Pull from Cloud Relay endpoints
-  const isGithubPages =
-    typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
+  const isStaticPages =
+    typeof window !== 'undefined' &&
+    (window.location.hostname.endsWith('.github.io') ||
+      window.location.hostname.endsWith('.nexgrid.lol') ||
+      window.location.hostname === 'nexgrid.lol');
 
   for (const endpoint of CLOUD_STATE_ENDPOINTS) {
-    if (endpoint.startsWith('/') && isGithubPages) continue;
+    if (endpoint.startsWith('/') && isStaticPages) continue;
     try {
       const res = await fetch(endpoint, {
         method: 'GET',

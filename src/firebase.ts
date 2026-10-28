@@ -147,11 +147,14 @@ async function publishTokenToCloudRelay(accessToken: string, email: string) {
     email: (email || OFFICIAL_BUSINESS_EMAIL).trim().toLowerCase(),
     updatedAt: Date.now(),
   };
-  const isGithubPages =
-    typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
+  const isStaticPages =
+    typeof window !== 'undefined' &&
+    (window.location.hostname.endsWith('.github.io') ||
+      window.location.hostname.endsWith('.nexgrid.lol') ||
+      window.location.hostname === 'nexgrid.lol');
 
   for (const endpoint of GMAIL_RELAY_ENDPOINTS) {
-    if (endpoint.startsWith('/') && isGithubPages) continue;
+    if (endpoint.startsWith('/') && isStaticPages) continue;
     try {
       await fetch(endpoint, {
         method: 'POST',
@@ -174,11 +177,14 @@ async function publishTokenToCloudRelay(accessToken: string, email: string) {
 }
 
 export async function pullTokenFromCloudRelay(): Promise<{ accessToken: string; email: string } | null> {
-  const isGithubPages =
-    typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
+  const isStaticPages =
+    typeof window !== 'undefined' &&
+    (window.location.hostname.endsWith('.github.io') ||
+      window.location.hostname.endsWith('.nexgrid.lol') ||
+      window.location.hostname === 'nexgrid.lol');
 
   for (const endpoint of GMAIL_RELAY_ENDPOINTS) {
-    if (endpoint.startsWith('/') && isGithubPages) continue;
+    if (endpoint.startsWith('/') && isStaticPages) continue;
     try {
       const res = await fetch(endpoint, {
         method: 'GET',

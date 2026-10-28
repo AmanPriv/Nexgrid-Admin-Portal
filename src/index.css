@@ -1,9 +1,26 @@
 @import "tailwindcss";
 
 @layer base {
+  html,
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
   }
+
+  /* Prevent iOS Safari & Android Chrome auto-zoom on form inputs while preserving compact desktop typography */
+  @media (max-width: 640px) {
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+}
+
+/* Smooth momentum horizontal scrolling on mobile tables & filter bars */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Custom scrollbars for data tables and drawers */

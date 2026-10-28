@@ -113,12 +113,14 @@ export const Header: React.FC<HeaderProps> = ({
     window.addEventListener('mousemove', handleActivity, { passive: true });
     window.addEventListener('keydown', handleActivity, { passive: true });
     window.addEventListener('click', handleActivity, { passive: true });
+    window.addEventListener('touchstart', handleActivity, { passive: true });
 
     return () => {
       clearInterval(timer);
       window.removeEventListener('mousemove', handleActivity);
       window.removeEventListener('keydown', handleActivity);
       window.removeEventListener('click', handleActivity);
+      window.removeEventListener('touchstart', handleActivity);
     };
   }, [timeoutMinutes, onLogout]);
 
@@ -156,18 +158,18 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-white border-b border-slate-200 shadow-2xs px-4 sm:px-6 py-3">
-      <div className="flex items-center justify-between gap-4">
+    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs px-3 sm:px-6 py-2.5 sm:py-3">
+      <div className="flex items-center justify-between gap-2 sm:gap-4">
         {/* Left: Hamburger, Brand Icon & View Title */}
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             onClick={onOpenMobileSidebar}
-            className="lg:hidden p-2 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+            className="lg:hidden p-2 -ml-1 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors shrink-0"
             aria-label="Open navigation menu"
           >
             <Menu className="w-5 h-5" />
           </button>
-          <div className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-slate-50 border border-slate-200 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
             <img
               src="./assets/aistudio/nexgrid_icon.png"
               onError={(e) => {
@@ -179,19 +181,22 @@ export const Header: React.FC<HeaderProps> = ({
             />
           </div>
           <div className="min-w-0">
-            <h1 className="text-sm sm:text-base font-bold text-slate-900 truncate">
+            <h1 className="text-xs sm:text-base font-bold text-slate-900 truncate">
               {getTabTitle(currentTab)}
             </h1>
-            <div className="flex items-center gap-2 text-[11px] text-slate-500">
-              <span className="font-medium text-slate-700">NexGrid Digital Systems</span>
-              <span>·</span>
-              <span>Addis Ababa Time: <strong className="font-mono text-slate-700">{addisTime}</strong> (EAT)</span>
+            <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] text-slate-500 truncate">
+              <span className="font-medium text-slate-700 hidden sm:inline">NexGrid Digital Systems</span>
+              <span className="hidden sm:inline">·</span>
+              <span className="truncate">
+                <span className="hidden sm:inline">Addis Ababa Time: </span>
+                <strong className="font-mono text-slate-700">{addisTime}</strong> EAT
+              </span>
             </div>
           </div>
         </div>
 
         {/* Right: Firebase Cloud Sync, Refresh, Inactivity Timer, Quick Action, Profile */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {/* Firebase Cloud DB Sync Status Dropdown */}
           <div className="relative">
             <button
@@ -200,11 +205,11 @@ export const Header: React.FC<HeaderProps> = ({
                 setQuickMenuOpen(false);
                 setUserMenuOpen(false);
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer"
               title="Firebase Cloud Firestore Multi-Device Sync"
             >
               <Database className={`w-3.5 h-3.5 text-emerald-600 ${syncStatus.syncing ? 'animate-pulse' : ''}`} />
-              <span className="hidden sm:inline">
+              <span className="hidden md:inline">
                 {syncStatus.syncing ? 'Syncing DB...' : 'Firebase DB Synced'}
               </span>
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -213,7 +218,7 @@ export const Header: React.FC<HeaderProps> = ({
             {syncMenuOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setSyncMenuOpen(false)} />
-                <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 p-3.5 z-50 text-xs text-slate-700 space-y-3">
+                <div className="fixed sm:absolute right-3 sm:right-0 top-14 sm:top-auto sm:mt-2 w-72 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl shadow-xl border border-slate-200 p-3.5 z-50 text-xs text-slate-700 space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2">
                     <div className="flex items-center gap-1.5 font-bold text-slate-900">
                       <Database className="w-4 h-4 text-emerald-600" />

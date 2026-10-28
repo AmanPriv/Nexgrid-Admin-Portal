@@ -7,6 +7,7 @@ import {
 } from './services/cloudSyncEngine.ts';
 import { AdminUser, Domain, Invoice } from './types.ts';
 import { Sidebar, NavTab } from './components/Sidebar.tsx';
+import { MobileBottomNav } from './components/MobileBottomNav.tsx';
 import { Header } from './components/Header.tsx';
 import { LoginView } from './views/LoginView.tsx';
 import { DashboardView } from './views/DashboardView.tsx';
@@ -150,7 +151,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col lg:flex-row text-slate-900 font-sans selection:bg-slate-900 selection:text-white">
+    <div className="min-h-screen bg-slate-50 flex flex-col lg:flex-row text-slate-900 font-sans selection:bg-slate-900 selection:text-white overflow-x-hidden">
       {/* Sidebar Navigation */}
       <Sidebar
         currentTab={currentTab}
@@ -174,7 +175,7 @@ export default function App() {
           onRefresh={() => setRefreshKey((k) => k + 1)}
         />
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-3.5 sm:p-6 lg:p-8 pb-24 lg:pb-8 max-w-7xl w-full mx-auto">
           {currentTab === 'dashboard' && (
             <DashboardView
               key={`dash-${refreshKey}`}
@@ -245,6 +246,14 @@ export default function App() {
             <SettingsView key={`set-${refreshKey}`} />
           )}
         </main>
+
+        {/* Thumb-Friendly Mobile Bottom Navigation Bar */}
+        <MobileBottomNav
+          currentTab={currentTab}
+          onSelectTab={setCurrentTab}
+          onOpenDrawer={() => setSidebarOpenMobile(true)}
+          urgentDomainCount={urgentDomainCount}
+        />
       </div>
     </div>
   );

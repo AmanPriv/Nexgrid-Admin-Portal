@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>NexGrid Admin Portal</title>
     <meta name="description" content="Secure Customer Management System (CMS) for NexGrid Digital Systems to manage customers, domains, invoices, quotations, payments, and automated SMS Ethiopia notifications." />
     <meta property="og:title" content="NexGrid Admin Portal" />
@@ -83,9 +86,10 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      // Fallback loader strictly for GitHub Pages when deployed directly from the repository root branch
+      // Fallback loader strictly for GitHub Pages / static subdomain when deployed directly from the repository root branch
       (function () {
-        if (window.location.hostname.indexOf('github.io') === -1) return;
+        var host = window.location.hostname || '';
+        if (host.indexOf('github.io') === -1 && host.indexOf('nexgrid.lol') === -1) return;
         function loadFallbackBundle() {
           if (window.__NEXGRID_FALLBACK_LOADED__) return;
           var root = document.getElementById('root');
