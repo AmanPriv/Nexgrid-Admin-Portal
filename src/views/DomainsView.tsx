@@ -274,10 +274,18 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
 
     try {
       const res = await api.sendDomainReminder(remindingDomain.id, reminderMessage);
-      setReminderResult({ status: res.status, error: res.error });
+      const status = res.status || (res.success ? 'sent' : 'failed');
+      setReminderResult({
+        status,
+        error:
+          res.error ||
+          (status === 'failed'
+            ? 'SMS dispatch could not be completed. Check your SMS Gateway settings or recipient whitelist.'
+            : undefined),
+      });
       loadData();
     } catch (err: any) {
-      setReminderResult({ status: 'failed', error: err.message });
+      setReminderResult({ status: 'failed', error: err.message || 'Failed to send SMS reminder.' });
     } finally {
       setSendingReminder(false);
     }
@@ -805,7 +813,7 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
 
             {reminderResult && (
               <div
-                className={`mb-4 p-3 rounded-lg text-xs flex items-start gap-2 ${
+                className={`mb-4 p-3 rounded-lg text-xs flex items-start gap-2.5 ${
                   reminderResult.status === 'sent' || reminderResult.status === 'delivered'
                     ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
                     : 'bg-rose-50 border border-rose-200 text-rose-800'
@@ -816,9 +824,30 @@ export const DomainsView: React.FC<DomainsViewProps> = ({
                 ) : (
                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 )}
-                <div>
-                  <div className="font-semibold capitalize">Status: {reminderResult.status}</div>
-                  {reminderResult.error && <div>{reminderResult.error}</div>}
+                <div className="flex-1 space-y-1.5">
+                  <div className="font-semibold capitalize">
+                    Status: {reminderResult.status || 'failed'}
+                    {(reminderResult.status === 'sent' || reminderResult.status === 'delivered') &&
+                      ` — Dispatched to ${remindingDomain.customerPhone}`}
+                  </div>
+                  {reminderResult.error && <div className="leading-relaxed">{reminderResult.error}</div>}
+                  {reminderResult.error &&
+                    (reminderResult.error.includes('10007') ||
+                      reminderResult.error.toLowerCase().includes('whitelist')) && (
+                      <div className="pt-1 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const digits = (remindingDomain.customerPhone || '').replace(/\D/g, '');
+                            const msisdn = digits.startsWith('0') ? `251${digits.slice(1)}` : digits;
+                            navigator.clipboard?.writeText(msisdn);
+                          }}
+                          className="px-2.5 py-1 rounded bg-white border border-rose-300 text-rose-800 hover:bg-rose-100 font-semibold text-[11px]"
+                        >
+                          Copy {(remindingDomain.customerPhone || '').replace(/\D/g, '')} for SMS Ethiopia Whitelist
+                        </button>
+                      </div>
+                    )}
                 </div>
               </div>
             )}

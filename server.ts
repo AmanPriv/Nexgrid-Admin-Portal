@@ -97,6 +97,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '10mb' }));
+app.use(express.text({ type: 'text/plain', limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Initialize scheduler
@@ -2428,12 +2429,24 @@ app.post('/api/messages/send-bulk', requireAuth, async (req: AuthenticatedReques
 
 // Public CORS-enabled SMS Relay for static GitHub Pages deployments
 app.post('/api/public/sms-relay', async (req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const bodyObj =
+    typeof req.body === 'string'
+      ? (() => {
+          try {
+            return JSON.parse(req.body);
+          } catch {
+            return {};
+          }
+        })()
+      : req.body || {};
+
   const db = getDb();
-  const apiKey = (req.body?.apiKey || db.settings.sms.apiKey || 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ').trim();
-  const endpoint = (req.body?.endpoint || db.settings.sms.apiEndpoint || 'https://smsethiopia.com/api/sms/send').trim();
-  const rawPhone = String(req.body?.phone || req.body?.msisdn || '').trim();
-  const text = String(req.body?.text || req.body?.message || 'NexGrid SMS notification.').trim();
-  const customSender = String(req.body?.senderId ?? db.settings.sms.senderId ?? '').trim();
+  const apiKey = (bodyObj?.apiKey || db.settings.sms.apiKey || 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ').trim();
+  const endpoint = (bodyObj?.endpoint || db.settings.sms.apiEndpoint || 'https://smsethiopia.com/api/sms/send').trim();
+  const rawPhone = String(bodyObj?.phone || bodyObj?.msisdn || '').trim();
+  const text = String(bodyObj?.text || bodyObj?.message || 'NexGrid SMS notification.').trim();
+  const customSender = String(bodyObj?.senderId ?? db.settings.sms.senderId ?? '').trim();
 
   if (!rawPhone) {
     return res.status(400).json({ success: false, error: 'Recipient phone number is required.' });

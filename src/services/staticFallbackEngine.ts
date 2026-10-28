@@ -362,6 +362,16 @@ function getDaysRemaining(expirationDateStr: string): number {
   return Math.ceil((exp.getTime() - now.getTime()) / 86400000);
 }
 
+function renderTemplate(template: string, vars: Record<string, string | number>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(vars)) {
+    const strVal = String(value ?? '');
+    result = result.split(`[${key}]`).join(strVal);
+    result = result.split(`{{${key}}}`).join(strVal);
+  }
+  return result;
+}
+
 function addAudit(db: StaticDatabase, admin: StoredAdmin | null, action: string, entityType: AuditLog['entityType'], entityId: string, details: string) {
   db.auditLogs.unshift({
     id: `AUD-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -379,16 +389,31 @@ function addAudit(db: StaticDatabase, admin: StoredAdmin | null, action: string,
 const CLOUD_SMS_RELAYS = [
   { url: '/api/public/sms-relay', credentials: 'same-origin' as RequestCredentials },
   {
-    url: 'https://ais-dev-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/sms-relay',
-    credentials: 'include' as RequestCredentials,
-  },
-  {
     url: 'https://ais-pre-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/sms-relay',
     credentials: 'omit' as RequestCredentials,
+  },
+  {
+    url: 'https://ais-dev-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/sms-relay',
+    credentials: 'include' as RequestCredentials,
   },
 ];
 
 const BRIDGE_REQUEST_TOPIC = 'nexgrid_sms_bridge_32da0e27_v1';
+
+function wakeUpCloudRelays() {
+  try {
+    fetch('https://ais-pre-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/cloud-state', {
+      method: 'GET',
+      mode: 'no-cors',
+    }).catch(() => {});
+    fetch('https://ais-dev-5pchhs56eemvp7uthhrevk-197503816635.europe-west2.run.app/api/public/cloud-state', {
+      method: 'GET',
+      mode: 'no-cors',
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+}
 
 function dispatchViaNtfyRealtimeBridge(params: {
   endpoint: string;
@@ -397,6 +422,7 @@ function dispatchViaNtfyRealtimeBridge(params: {
   text: string;
   senderId?: string;
 }): Promise<{ ok: boolean; httpStatus: number; latencyMs: number; data: any }> {
+  wakeUpCloudRelays();
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
     const reqId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -523,12 +549,15 @@ async function dispatchSmsViaRelayOrDirect(params: {
     typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
   const customApiBase = (localStorage.getItem('nexgrid_custom_api_url') || '').trim().replace(/\/$/, '');
 
-  // If on GitHub Pages without a custom API URL, use the real-time CORS-free ntfy.sh bridge first!
+  // Wake up Cloud Run relays immediately so HTTP relay and ntfy listener are hot
+  wakeUpCloudRelays();
+
+  // If on GitHub Pages without a custom API URL, try the real-time CORS-free ntfy.sh bridge first!
   if (isGithubPages && !customApiBase) {
     try {
       return await dispatchViaNtfyRealtimeBridge(params);
     } catch {
-      // fall through to backup relays
+      // fall through to backup HTTP relays
     }
   }
 
@@ -536,16 +565,20 @@ async function dispatchSmsViaRelayOrDirect(params: {
     ? [{ url: `${customApiBase}/api/public/sms-relay`, credentials: 'omit' as RequestCredentials }, ...CLOUD_SMS_RELAYS]
     : CLOUD_SMS_RELAYS;
 
-  // 1. Try HTTP relay endpoints
+  // 1. Try HTTP relay endpoints (using text/plain simple CORS request to avoid OPTIONS preflight blocks)
   for (const relay of relays) {
     if (relay.url.startsWith('/') && isGithubPages) {
       continue;
     }
     try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 5000);
       const res = await fetch(relay.url, {
         method: 'POST',
         credentials: relay.credentials,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': relay.url.startsWith('/') ? 'application/json' : 'text/plain;charset=UTF-8',
+        },
         body: JSON.stringify({
           endpoint: params.endpoint,
           apiKey: params.apiKey,
@@ -553,7 +586,9 @@ async function dispatchSmsViaRelayOrDirect(params: {
           text: params.text,
           senderId: params.senderId || '',
         }),
+        signal: ctrl.signal,
       });
+      clearTimeout(t);
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json') && res.status !== 502 && res.status !== 503 && res.status !== 404) {
         const json = await res.json().catch(() => ({}));
@@ -593,7 +628,7 @@ async function dispatchSmsViaRelayOrDirect(params: {
   });
   const data = await res.json().catch(() => ({}));
   return {
-    ok: res.ok,
+    ok: res.ok && data?.sent !== false,
     httpStatus: res.status,
     latencyMs: Date.now() - startTime,
     data,
@@ -606,9 +641,20 @@ async function sendSmsBrowser(
   content: string,
   customerId = 'DIRECT',
   customerName = 'Direct Recipient',
-  messageType: MessageLog['messageType'] = 'custom'
+  messageType: MessageLog['messageType'] = 'custom',
+  domainId?: string,
+  reminderInterval?: number
 ) {
   const msisdn = formatMsisdn(recipient);
+  if (!msisdn) {
+    return {
+      success: false,
+      status: 'failed' as const,
+      messageId: '',
+      error: 'Recipient phone number is missing or invalid.',
+    };
+  }
+
   const cleanKey = (db.settings.sms.apiKey || 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ').trim();
   const endpoint = db.settings.sms.apiEndpoint?.trim() || 'https://smsethiopia.com/api/sms/send';
   const customSender = (db.settings.sms.senderId || '').trim();
@@ -628,6 +674,8 @@ async function sendSmsBrowser(
     status: 'queued',
     attemptCount: 1,
     lastAttemptAt: new Date().toISOString(),
+    domainId,
+    reminderInterval,
     createdAt: new Date().toISOString(),
   };
 
@@ -648,9 +696,12 @@ async function sendSmsBrowser(
       log.status = 'failed';
       const isWhitelist =
         data?.error_code === 10007 ||
-        data?.status === 'DEFAULT_CAMPAIGN_RECIPIENT_NOT_WHITELISTED';
+        data?.status === 'DEFAULT_CAMPAIGN_RECIPIENT_NOT_WHITELISTED' ||
+        (typeof data?.error_message === 'string' &&
+          (data.error_message.includes('10007') ||
+            data.error_message.includes('DEFAULT_CAMPAIGN_RECIPIENT_NOT_WHITELISTED')));
       log.errorDetails = isWhitelist
-        ? `Default Campaign Whitelist Required (Code 10007): Recipient ${msisdn} is not yet whitelisted in your SMS Ethiopia Default Campaign.`
+        ? `Default Campaign Whitelist Required (Code 10007): Recipient ${msisdn} is not yet whitelisted in your SMS Ethiopia Default Campaign. Add ${msisdn} to your Default Campaign recipients on smsethiopia.com or approve your custom Sender ID.`
         : data?.error_message || data?.message || `Gateway returned HTTP ${result.httpStatus}`;
     }
   } catch (err: any) {
@@ -1003,7 +1054,45 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     db.customers.push(customer);
     addAudit(db, currentAdmin, 'CUSTOMER_CREATED', 'customer', customer.id, `Added customer ${customer.businessName}`);
     saveDb(db);
-    return { customer, welcomeSent: false };
+
+    let welcomeSent = false;
+    if (db.settings.sms.enabled && db.settings.sms.autoWelcome && customer.phone) {
+      const welcomeTmpl = db.templates.find((t) => t.type === 'welcome' && t.channel === 'sms');
+      const tmplStr =
+        welcomeTmpl?.bodyTemplate ||
+        'Welcome to NexGrid Digital Systems, [Customer Name]! Your account has been created. For support or inquiries, contact us at [Business Contact].';
+      const msg = renderTemplate(tmplStr, {
+        'Customer Name': customer.businessName || customer.contactPerson,
+        'Contact Person': customer.contactPerson || customer.businessName,
+        'Business Contact': db.settings.general.businessPhone || db.settings.general.businessContact || '+251 906697634',
+      });
+      const smsRes = await sendSmsBrowser(db, customer.phone, msg, customer.id, customer.businessName, 'welcome');
+      welcomeSent = smsRes.success;
+    }
+
+    return { customer, welcomeSent };
+  }
+
+  if (pathname.startsWith('/api/customers/') && pathname.endsWith('/archive') && method === 'POST') {
+    const id = pathname.split('/')[3];
+    const customer = db.customers.find((c) => c.id === id);
+    if (!customer) throw new Error('Customer not found.');
+    customer.status = 'archived';
+    customer.updatedAt = new Date().toISOString();
+    addAudit(db, currentAdmin, 'CUSTOMER_ARCHIVED', 'customer', customer.id, `Archived customer ${customer.businessName}`);
+    saveDb(db);
+    return { success: true, customer };
+  }
+
+  if (pathname.startsWith('/api/customers/') && pathname.endsWith('/unarchive') && method === 'POST') {
+    const id = pathname.split('/')[3];
+    const customer = db.customers.find((c) => c.id === id);
+    if (!customer) throw new Error('Customer not found.');
+    customer.status = 'active';
+    customer.updatedAt = new Date().toISOString();
+    addAudit(db, currentAdmin, 'CUSTOMER_UNARCHIVED', 'customer', customer.id, `Restored customer ${customer.businessName}`);
+    saveDb(db);
+    return { success: true, customer };
   }
 
   if (pathname.startsWith('/api/customers/') && method === 'GET') {
@@ -1013,8 +1102,8 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     return {
       customer,
       domains: db.domains.filter((d) => d.customerId === id).map((d) => ({ ...d, daysLeft: getDaysRemaining(d.expirationDate) })),
-      invoices: db.invoices.filter((i) => i.customerId === id),
-      quotations: db.quotations.filter((q) => q.customerId === id),
+      invoices: db.invoices.filter((i) => i.customerId === id).map((i) => recalculateDocumentTotals(i)),
+      quotations: db.quotations.filter((q) => q.customerId === id).map((q) => recalculateDocumentTotals(q)),
       payments: db.payments.filter((p) => p.customerId === id),
       messages: db.messageLogs.filter((m) => m.customerId === id),
     };
@@ -1031,21 +1120,46 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
 
   // 8. Domains
   if (pathname === '/api/domains' && method === 'GET') {
-    return {
-      domains: db.domains.map((d) => {
-        const cust = db.customers.find((c) => c.id === d.customerId);
-        return {
-          ...d,
-          customerName: cust?.businessName || 'Unknown',
-          customerPhone: cust?.phone || '',
-          customerEmail: cust?.email || '',
-          daysLeft: getDaysRemaining(d.expirationDate),
-        };
-      }),
-    };
+    const search = (urlObj.searchParams.get('search') || '').toLowerCase();
+    const status = urlObj.searchParams.get('status') || 'all';
+
+    let list = db.domains.map((d) => {
+      const cust = db.customers.find((c) => c.id === d.customerId);
+      const daysLeft = getDaysRemaining(d.expirationDate);
+      return {
+        ...d,
+        customerName: cust?.businessName || 'Unknown',
+        customerPhone: cust?.phone || '',
+        customerEmail: cust?.email || '',
+        daysLeft,
+      };
+    });
+
+    if (status && status !== 'all') {
+      if (status === 'expiring_soon') {
+        list = list.filter((d) => d.daysLeft >= 0 && d.daysLeft <= 30 && d.status !== 'cancelled');
+      } else if (status === 'expired') {
+        list = list.filter((d) => d.daysLeft < 0 && d.status !== 'cancelled');
+      } else {
+        list = list.filter((d) => d.status === status);
+      }
+    }
+
+    if (search) {
+      list = list.filter(
+        (d) =>
+          d.domainName.toLowerCase().includes(search) ||
+          d.customerName.toLowerCase().includes(search) ||
+          (d.registrar && d.registrar.toLowerCase().includes(search))
+      );
+    }
+
+    return { domains: list };
   }
 
   if (pathname === '/api/domains' && method === 'POST') {
+    const daysLeft = getDaysRemaining(body.expirationDate);
+    const status: Domain['status'] = daysLeft < 0 ? 'expired' : daysLeft <= 30 ? 'expiring_soon' : 'active';
     const domain: Domain = {
       id: `DOM-${1001 + db.domains.length}`,
       customerId: body.customerId,
@@ -1054,14 +1168,206 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       expirationDate: body.expirationDate,
       renewalPrice: Number(body.renewalPrice) || 0,
       registrationPeriodYears: Number(body.registrationPeriodYears) || 1,
-      registrar: body.registrar || 'Ethio Telecom',
-      status: 'active',
+      registrar: body.registrar || 'Ethio Telecom (.et)',
+      status,
       notes: body.notes || '',
       renewalHistory: [],
+      sentReminderIntervals: [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     db.domains.push(domain);
+    const cust = db.customers.find((c) => c.id === domain.customerId);
+    addAudit(
+      db,
+      currentAdmin,
+      'DOMAIN_CREATED',
+      'domain',
+      domain.id,
+      `Registered domain ${domain.domainName} for customer ${cust?.businessName || domain.customerId}`
+    );
+    saveDb(db);
+    return { domain };
+  }
+
+  if (pathname.startsWith('/api/domains/') && pathname.endsWith('/send-reminder') && method === 'POST') {
+    const dId = pathname.split('/')[3];
+    const domain = db.domains.find((d) => d.id === dId);
+    if (!domain) {
+      return {
+        success: false,
+        status: 'failed',
+        messageId: '',
+        error: 'Domain not found.',
+      };
+    }
+
+    const customer = db.customers.find((c) => c.id === domain.customerId);
+    const targetPhone = (customer?.phone || (domain as any).customerPhone || '').trim();
+    if (!targetPhone) {
+      return {
+        success: false,
+        status: 'failed',
+        messageId: '',
+        error: 'Customer phone number is missing or invalid. Add a phone number to this customer first.',
+      };
+    }
+
+    const daysLeft = getDaysRemaining(domain.expirationDate);
+    const currency = db.settings.general.currency || 'ETB';
+    let messageText = (body.customMessage || '').trim();
+
+    if (!messageText) {
+      const tmpl = db.templates.find((t) => t.type === 'domain_reminder' && t.channel === 'sms');
+      const tmplStr =
+        tmpl?.bodyTemplate ||
+        'Hello [Customer Name], your domain [Domain Name] is scheduled to expire on [Expiration Date] ([Days Remaining] days left). Renewal price: [Amount] [Currency]. Please contact NexGrid Digital Systems to arrange renewal.';
+
+      messageText = renderTemplate(tmplStr, {
+        'Customer Name': customer?.businessName || customer?.contactPerson || 'Valued Client',
+        'Domain Name': domain.domainName,
+        'Expiration Date': new Date(domain.expirationDate).toISOString().split('T')[0],
+        'Days Remaining': daysLeft,
+        'Amount': (Number(domain.renewalPrice) || 0).toLocaleString(),
+        'Currency': currency,
+        'Business Contact': db.settings.general.businessPhone || db.settings.general.businessContact || '+251 906697634',
+      });
+    }
+
+    const result = await sendSmsBrowser(
+      db,
+      targetPhone,
+      messageText,
+      customer?.id || domain.customerId,
+      customer?.businessName || (domain as any).customerName || 'Client',
+      'domain_reminder',
+      domain.id,
+      daysLeft
+    );
+
+    if (result.success) {
+      domain.lastReminderSentAt = new Date().toISOString();
+      domain.updatedAt = new Date().toISOString();
+    }
+
+    addAudit(
+      db,
+      currentAdmin,
+      'DOMAIN_REMINDER_SENT',
+      'notification',
+      domain.id,
+      `Dispatched domain renewal reminder for ${domain.domainName} to ${targetPhone} (Status: ${result.status})`
+    );
+    saveDb(db);
+
+    return result;
+  }
+
+  if (pathname.startsWith('/api/domains/') && pathname.endsWith('/renew') && method === 'POST') {
+    const dId = pathname.split('/')[3];
+    const domain = db.domains.find((d) => d.id === dId);
+    if (!domain) throw new Error('Domain not found.');
+    if (!body.newExpirationDate) throw new Error('New expiration date is required to confirm renewal.');
+
+    const customer = db.customers.find((c) => c.id === domain.customerId);
+    const prevExp = domain.expirationDate;
+    const price = Number(body.renewalPrice) || domain.renewalPrice;
+    const years = Number(body.periodYears) || 1;
+
+    if (!Array.isArray(domain.renewalHistory)) domain.renewalHistory = [];
+    domain.renewalHistory.push({
+      id: `RENEW-${Date.now()}`,
+      date: new Date().toISOString(),
+      previousExpDate: prevExp,
+      newExpDate: body.newExpirationDate,
+      renewalPrice: price,
+      periodYears: years,
+      recordedBy: currentAdmin?.fullName || 'Admin',
+      notes: body.notes || 'Manual domain renewal confirmed by administrator.',
+    });
+
+    domain.expirationDate = body.newExpirationDate;
+    domain.registrationPeriodYears = years;
+    domain.renewalPrice = price;
+    domain.status = 'renewed';
+    domain.sentReminderIntervals = [];
+    domain.updatedAt = new Date().toISOString();
+
+    let paymentCreated: Payment | undefined;
+    if (body.recordPayment && price > 0 && customer) {
+      const payment: Payment = {
+        id: `PAY-${1001 + db.payments.length}`,
+        customerId: customer.id,
+        amount: price,
+        currency: db.settings.general.currency || 'ETB',
+        paymentDate: new Date().toISOString().slice(0, 10),
+        paymentMethod: body.paymentMethod || 'bank_transfer',
+        referenceNumber: body.referenceNumber || `RENEW-${domain.domainName}`,
+        notes: `Payment for domain renewal: ${domain.domainName} (${years} yr)`,
+        recordedBy: currentAdmin?.fullName || 'Admin',
+        status: 'confirmed',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      db.payments.push(payment);
+      paymentCreated = payment;
+
+      if (db.settings.sms.enabled && db.settings.sms.autoPaymentConfirm && customer.phone) {
+        const payTmpl = db.templates.find((t) => t.type === 'payment_confirmation' && t.channel === 'sms');
+        const tmplStr =
+          payTmpl?.bodyTemplate ||
+          'Hello [Customer Name], we have confirmed your payment of [Amount] [Currency] received on [Payment Date] for [Service/Invoice Number]. Remaining balance: [Balance] [Currency]. Thank you for choosing NexGrid Digital Systems.';
+        const msg = renderTemplate(tmplStr, {
+          'Customer Name': customer.businessName || customer.contactPerson,
+          'Amount': price.toLocaleString(),
+          'Currency': payment.currency,
+          'Payment Date': payment.paymentDate,
+          'Service/Invoice Number': `Renewal ${domain.domainName}`,
+          'Balance': '0.00',
+        });
+        await sendSmsBrowser(db, customer.phone, msg, customer.id, customer.businessName, 'payment_confirmation').catch(() => {});
+      }
+    }
+
+    addAudit(
+      db,
+      currentAdmin,
+      'DOMAIN_RENEWED',
+      'domain',
+      domain.id,
+      `Renewed domain ${domain.domainName} from ${prevExp.slice(0, 10)} to ${body.newExpirationDate.slice(0, 10)} (${price} ETB)`
+    );
+    saveDb(db);
+
+    return {
+      success: true,
+      domain,
+      payment: paymentCreated,
+    };
+  }
+
+  if (pathname.startsWith('/api/domains/') && method === 'PUT') {
+    const dId = pathname.split('/')[3];
+    const domain = db.domains.find((d) => d.id === dId);
+    if (!domain) throw new Error('Domain not found.');
+
+    if (body.domainName) domain.domainName = String(body.domainName).toLowerCase().trim();
+    if (body.registrationDate) domain.registrationDate = body.registrationDate;
+    if (body.expirationDate) {
+      domain.expirationDate = body.expirationDate;
+      const daysLeft = getDaysRemaining(body.expirationDate);
+      if (body.status !== 'cancelled' && body.status !== 'renewed') {
+        domain.status = daysLeft < 0 ? 'expired' : daysLeft <= 30 ? 'expiring_soon' : 'active';
+      }
+    }
+    if (body.renewalPrice !== undefined) domain.renewalPrice = Number(body.renewalPrice);
+    if (body.registrationPeriodYears !== undefined) domain.registrationPeriodYears = Number(body.registrationPeriodYears);
+    if (body.registrar !== undefined) domain.registrar = String(body.registrar).trim();
+    if (body.status) domain.status = body.status;
+    if (body.notes !== undefined) domain.notes = String(body.notes).trim();
+    domain.updatedAt = new Date().toISOString();
+
+    addAudit(db, currentAdmin, 'DOMAIN_UPDATED', 'domain', domain.id, `Updated domain ${domain.domainName}`);
     saveDb(db);
     return { domain };
   }
@@ -1094,6 +1400,78 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
           remainingBalance,
         };
       }),
+    };
+  }
+
+  if (pathname.startsWith('/api/invoices/') && pathname.endsWith('/send-reminder') && method === 'POST') {
+    const invId = pathname.split('/')[3];
+    const rawInv = db.invoices.find((i) => i.id === invId);
+    if (!rawInv) {
+      return { success: false, status: 'failed', error: 'Invoice not found.' };
+    }
+    const invoice = recalculateDocumentTotals(rawInv);
+    const customer = db.customers.find((c) => c.id === invoice.customerId);
+    if (!customer || !customer.phone) {
+      return { success: false, status: 'failed', error: 'Customer phone number is missing.' };
+    }
+    const totalPaid = db.payments
+      .filter((p) => p.invoiceId === invoice.id && p.status === 'confirmed')
+      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const remainingBalance = Math.max(0, invoice.total - totalPaid);
+
+    const tmpl = db.templates.find((t) => t.type === 'invoice_reminder' && t.channel === 'sms');
+    const tmplStr =
+      tmpl?.bodyTemplate ||
+      'Hello [Customer Name], this is a reminder from NexGrid Digital Systems regarding invoice [Invoice Number] for [Amount] [Currency], due on [Due Date]. Please arrange payment to avoid service disruption.';
+
+    const messageText = renderTemplate(tmplStr, {
+      'Customer Name': customer.businessName || customer.contactPerson,
+      'Invoice Number': invoice.id,
+      'Amount': remainingBalance.toLocaleString(),
+      'Currency': invoice.currency,
+      'Due Date': invoice.dueDate,
+      'Business Contact': db.settings.general.businessPhone || db.settings.general.businessContact || '+251 906697634',
+    });
+
+    const res = await sendSmsBrowser(
+      db,
+      customer.phone,
+      messageText,
+      customer.id,
+      customer.businessName,
+      'invoice_reminder'
+    );
+
+    addAudit(
+      db,
+      currentAdmin,
+      'INVOICE_REMINDER_SENT',
+      'notification',
+      invoice.id,
+      `Sent invoice reminder for ${invoice.id} to ${customer.phone} (Status: ${res.status})`
+    );
+    saveDb(db);
+    return res;
+  }
+
+  if (pathname.startsWith('/api/invoices/') && method === 'GET') {
+    const invId = pathname.split('/')[3];
+    const rawInv = db.invoices.find((i) => i.id === invId);
+    if (!rawInv) throw new Error('Invoice not found.');
+    const invoice = recalculateDocumentTotals(rawInv);
+    const customer = db.customers.find((c) => c.id === invoice.customerId);
+    const payments = db.payments.filter((p) => p.invoiceId === invoice.id && p.status === 'confirmed');
+    const totalPaid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+    const remainingBalance = Math.max(0, invoice.total - totalPaid);
+    const overpayment = Math.max(0, totalPaid - invoice.total);
+
+    return {
+      invoice,
+      customer,
+      totalPaid,
+      remainingBalance,
+      overpayment,
+      payments,
     };
   }
 
@@ -1143,9 +1521,43 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     return { invoice: inv };
   }
 
+  if (pathname.startsWith('/api/invoices/') && method === 'PUT') {
+    const invId = pathname.split('/')[3];
+    const invoice = db.invoices.find((i) => i.id === invId);
+    if (!invoice) throw new Error('Invoice not found.');
+
+    if (body.items && Array.isArray(body.items)) {
+      invoice.items = body.items.map((it: any, idx: number) => {
+        const qty = Number(it.quantity) || 1;
+        const unitPrice = Number(it.unitPrice) || 0;
+        return {
+          id: it.id || `item-${idx + 1}`,
+          description: (it.description || '').trim(),
+          quantity: qty,
+          unitPrice,
+          total: qty * unitPrice,
+        };
+      });
+    }
+    if (body.taxRate !== undefined) invoice.taxRate = Number(body.taxRate);
+    if (body.discountAmount !== undefined) invoice.discountAmount = Number(body.discountAmount);
+    if (body.issueDate) invoice.issueDate = body.issueDate;
+    if (body.dueDate) invoice.dueDate = body.dueDate;
+    if (body.notes !== undefined) invoice.notes = String(body.notes).trim();
+    if (body.paymentInstructions !== undefined) invoice.paymentInstructions = String(body.paymentInstructions).trim();
+    if (body.terms !== undefined) invoice.terms = String(body.terms).trim();
+    if (body.status) invoice.status = body.status;
+
+    const healed = recalculateDocumentTotals(invoice);
+    Object.assign(invoice, healed, { updatedAt: new Date().toISOString() });
+    saveDb(db);
+    return { invoice };
+  }
+
   if (pathname === '/api/quotations' && method === 'GET') {
     return {
-      quotations: db.quotations.map((q) => {
+      quotations: db.quotations.map((rawQ) => {
+        const q = recalculateDocumentTotals(rawQ);
         const cust = db.customers.find((c) => c.id === q.customerId);
         return {
           ...q,
@@ -1205,8 +1617,11 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
 
   if (pathname.startsWith('/api/quotations/') && pathname.endsWith('/convert-to-invoice') && method === 'POST') {
     const qId = pathname.split('/')[3];
-    const quotation = db.quotations.find((q) => q.id === qId);
-    if (!quotation) throw new Error('Quotation not found.');
+    const rawQuotation = db.quotations.find((q) => q.id === qId);
+    if (!rawQuotation) throw new Error('Quotation not found.');
+    const quotation = recalculateDocumentTotals(rawQuotation);
+    Object.assign(rawQuotation, quotation);
+
     const inv: Invoice = {
       id: `INV-${new Date().getFullYear()}-${String(db.invoices.length + 1).padStart(3, '0')}`,
       customerId: quotation.customerId,
@@ -1230,12 +1645,12 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    quotation.status = 'accepted';
-    quotation.convertedInvoiceId = inv.id;
-    quotation.updatedAt = new Date().toISOString();
+    rawQuotation.status = 'accepted';
+    rawQuotation.convertedInvoiceId = inv.id;
+    rawQuotation.updatedAt = new Date().toISOString();
     db.invoices.push(inv);
     saveDb(db);
-    return { success: true, invoice: inv, quotation };
+    return { success: true, invoice: inv, quotation: rawQuotation };
   }
 
   if (pathname === '/api/payments' && method === 'GET') {
@@ -1264,6 +1679,65 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       updatedAt: new Date().toISOString(),
     };
     db.payments.push(pay);
+
+    let remainingBal = 0;
+    if (pay.invoiceId) {
+      const targetInv = db.invoices.find((i) => i.id === pay.invoiceId);
+      if (targetInv) {
+        const healedInv = recalculateDocumentTotals(targetInv);
+        Object.assign(targetInv, healedInv);
+        const paidSum = db.payments
+          .filter((p) => p.invoiceId === targetInv.id && p.status === 'confirmed')
+          .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        remainingBal = Math.max(0, targetInv.total - paidSum);
+        targetInv.status =
+          paidSum >= targetInv.total && targetInv.total > 0
+            ? 'paid'
+            : paidSum > 0
+            ? 'partially_paid'
+            : targetInv.status;
+        targetInv.updatedAt = new Date().toISOString();
+      }
+    }
+
+    const cust = db.customers.find((c) => c.id === pay.customerId);
+    if (db.settings.sms.enabled && db.settings.sms.autoPaymentConfirm && cust?.phone) {
+      const payTmpl = db.templates.find((t) => t.type === 'payment_confirmation' && t.channel === 'sms');
+      const tmplStr =
+        payTmpl?.bodyTemplate ||
+        'Hello [Customer Name], we have confirmed your payment of [Amount] [Currency] received on [Payment Date] for [Service/Invoice Number]. Remaining balance: [Balance] [Currency]. Thank you for choosing NexGrid Digital Systems.';
+      const msg = renderTemplate(tmplStr, {
+        'Customer Name': cust.businessName || cust.contactPerson,
+        'Amount': pay.amount.toLocaleString(),
+        'Currency': pay.currency,
+        'Payment Date': pay.paymentDate.slice(0, 10),
+        'Service/Invoice Number': pay.invoiceId || pay.notes || pay.id,
+        'Balance': remainingBal.toLocaleString(),
+      });
+      await sendSmsBrowser(db, cust.phone, msg, cust.id, cust.businessName, 'payment_confirmation').catch(() => {});
+    }
+
+    saveDb(db);
+    return { payment: pay };
+  }
+
+  if (pathname.startsWith('/api/payments/') && pathname.endsWith('/confirm') && method === 'POST') {
+    const payId = pathname.split('/')[3];
+    const pay = db.payments.find((p) => p.id === payId);
+    if (!pay) throw new Error('Payment not found.');
+    pay.status = 'confirmed';
+    pay.updatedAt = new Date().toISOString();
+    saveDb(db);
+    return { success: true, payment: pay };
+  }
+
+  if (pathname.startsWith('/api/payments/') && pathname.endsWith('/reverse') && method === 'POST') {
+    const payId = pathname.split('/')[3];
+    const pay = db.payments.find((p) => p.id === payId);
+    if (!pay) throw new Error('Payment not found.');
+    pay.status = 'reversed';
+    pay.reversalReason = body.reason || 'Reversed by administrator';
+    pay.updatedAt = new Date().toISOString();
     if (pay.invoiceId) {
       const targetInv = db.invoices.find((i) => i.id === pay.invoiceId);
       if (targetInv) {
@@ -1277,17 +1751,34 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
             ? 'paid'
             : paidSum > 0
             ? 'partially_paid'
-            : targetInv.status;
+            : 'unpaid';
         targetInv.updatedAt = new Date().toISOString();
       }
     }
     saveDb(db);
-    return { payment: pay };
+    return { success: true, payment: pay };
   }
 
   // 10. Messaging & Templates
   if (pathname === '/api/messages/logs' && method === 'GET') {
     return { logs: db.messageLogs };
+  }
+
+  if (pathname.startsWith('/api/messages/') && pathname.endsWith('/retry') && method === 'POST') {
+    const msgId = pathname.split('/')[3];
+    const existingLog = db.messageLogs.find((m) => m.id === msgId);
+    if (!existingLog) throw new Error('Message log not found.');
+    const res = await sendSmsBrowser(
+      db,
+      existingLog.recipient,
+      existingLog.content,
+      existingLog.customerId,
+      existingLog.customerName,
+      existingLog.messageType,
+      existingLog.domainId,
+      existingLog.reminderInterval
+    );
+    return { success: res.success, status: res.status, error: res.error };
   }
 
   if (pathname === '/api/messages/log-email' && method === 'POST') {
@@ -1332,7 +1823,8 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
   }
 
   if ((pathname === '/api/messages/send' || pathname === '/api/messages/send-test') && method === 'POST') {
-    return sendSmsBrowser(db, body.phone, body.message, body.customerId, body.customerName);
+    const msgType = body.messageType || (pathname === '/api/messages/send-test' ? 'test' : 'custom');
+    return sendSmsBrowser(db, body.phone, body.message, body.customerId, body.customerName, msgType);
   }
 
   if (pathname === '/api/messages/send-bulk' && method === 'POST') {
@@ -1342,7 +1834,7 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     let failed = 0;
     for (const r of recipients) {
       const phone = typeof r === 'string' ? r : r.phone;
-      const res = await sendSmsBrowser(db, phone, body.message, r.customerId, r.customerName);
+      const res = await sendSmsBrowser(db, phone, body.message, r.customerId, r.customerName, body.messageType || 'custom');
       if (res.success) sent++;
       else failed++;
       results.push({ phone, status: res.status, messageId: res.messageId, error: res.error });
@@ -1409,7 +1901,7 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     return { template: tmpl };
   }
 
-  // 11. Settings, Reports, Audit Logs, Factory Reset
+  // 11. Settings, Scheduler, Reports, Audit Logs, Backup & Factory Reset
   if (pathname === '/api/settings' && method === 'GET') {
     const copy = JSON.parse(JSON.stringify(db.settings));
     copy.sms.hasApiKey = Boolean(copy.sms.apiKey);
@@ -1433,6 +1925,79 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     return { success: true, message: 'Settings saved.' };
   }
 
+  if (pathname === '/api/scheduler/run' && method === 'POST') {
+    const intervals = db.settings.reminders.intervalsDays || [30, 15, 7, 3, 1, 0];
+    let remindersSent = 0;
+    let remindersSkipped = 0;
+    const errors: string[] = [];
+
+    for (const domain of db.domains) {
+      if (domain.status === 'cancelled') continue;
+      const daysLeft = getDaysRemaining(domain.expirationDate);
+      if (intervals.includes(daysLeft)) {
+        const cust = db.customers.find((c) => c.id === domain.customerId);
+        if (!cust || !cust.phone) {
+          remindersSkipped++;
+          continue;
+        }
+        const tmpl = db.templates.find((t) => t.type === 'domain_reminder' && t.channel === 'sms');
+        const tmplStr =
+          tmpl?.bodyTemplate ||
+          'Hello [Customer Name], your domain [Domain Name] is scheduled to expire on [Expiration Date] ([Days Remaining] days left). Renewal price: [Amount] [Currency]. Please contact NexGrid Digital Systems to arrange renewal.';
+        const messageText = renderTemplate(tmplStr, {
+          'Customer Name': cust.businessName || cust.contactPerson,
+          'Domain Name': domain.domainName,
+          'Expiration Date': new Date(domain.expirationDate).toISOString().split('T')[0],
+          'Days Remaining': daysLeft,
+          'Amount': (Number(domain.renewalPrice) || 0).toLocaleString(),
+          'Currency': db.settings.general.currency || 'ETB',
+          'Business Contact': db.settings.general.businessPhone || '+251 906697634',
+        });
+        const res = await sendSmsBrowser(db, cust.phone, messageText, cust.id, cust.businessName, 'domain_reminder', domain.id, daysLeft);
+        if (res.success) {
+          remindersSent++;
+          domain.lastReminderSentAt = new Date().toISOString();
+        } else if (res.error) {
+          errors.push(`${domain.domainName}: ${res.error}`);
+        }
+      } else {
+        remindersSkipped++;
+      }
+    }
+
+    db.settings.reminders.lastSchedulerRun = new Date().toISOString();
+    saveDb(db);
+    return {
+      runAt: db.settings.reminders.lastSchedulerRun,
+      domainsChecked: db.domains.length,
+      remindersSent,
+      remindersSkipped,
+      errors,
+    };
+  }
+
+  if (pathname === '/api/backup/restore' && method === 'POST') {
+    const uploaded = body.data || body;
+    if (Array.isArray(uploaded.customers)) db.customers = uploaded.customers;
+    if (Array.isArray(uploaded.domains)) db.domains = uploaded.domains;
+    if (Array.isArray(uploaded.invoices)) db.invoices = uploaded.invoices.map((i: Invoice) => recalculateDocumentTotals(i));
+    if (Array.isArray(uploaded.quotations)) db.quotations = uploaded.quotations.map((q: Quotation) => recalculateDocumentTotals(q));
+    if (Array.isArray(uploaded.payments)) db.payments = uploaded.payments;
+    if (Array.isArray(uploaded.templates)) db.templates = uploaded.templates;
+    if (Array.isArray(uploaded.messageLogs)) db.messageLogs = uploaded.messageLogs;
+    saveDb(db);
+    return {
+      success: true,
+      message: 'Database restored successfully.',
+      counts: {
+        customers: db.customers.length,
+        domains: db.domains.length,
+        invoices: db.invoices.length,
+        payments: db.payments.length,
+      },
+    };
+  }
+
   if (pathname === '/api/settings/factory-reset' && method === 'POST') {
     localStorage.removeItem(STATIC_DB_KEY);
     localStorage.removeItem(STATIC_SESSION_KEY);
@@ -1453,7 +2018,8 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       monthMap[key] = { month: label, invoiced: 0, collected: 0 };
     }
 
-    for (const inv of db.invoices) {
+    for (const rawInv of db.invoices) {
+      const inv = recalculateDocumentTotals(rawInv);
       if (inv.status === 'cancelled') continue;
       const key = (inv.issueDate || '').slice(0, 7);
       if (monthMap[key]) {
@@ -1469,7 +2035,9 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       }
     }
 
-    const activeInvoices = db.invoices.filter((i) => i.status !== 'cancelled' && i.status !== 'draft');
+    const activeInvoices = db.invoices
+      .map((i) => recalculateDocumentTotals(i))
+      .filter((i) => i.status !== 'cancelled' && i.status !== 'draft');
     const confirmedPayments = db.payments.filter((p) => p.status === 'confirmed');
     const totalInvoiced = activeInvoices.reduce((s, i) => s + (Number(i.total) || 0), 0);
     const totalReceived = confirmedPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
@@ -1479,7 +2047,9 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     const unpaidInvoices = activeInvoices.filter((i) => i.status !== 'paid');
     const overdueInvoices = unpaidInvoices.filter((i) => i.dueDate < todayStr || i.status === 'overdue');
     const overdueAmount = overdueInvoices.reduce((s, i) => s + (Number(i.remainingBalance ?? i.total) || 0), 0);
-    const pendingQuotes = db.quotations.filter((q) => q.status === 'sent' || q.status === 'draft');
+    const pendingQuotes = db.quotations
+      .map((q) => recalculateDocumentTotals(q))
+      .filter((q) => q.status === 'sent' || q.status === 'draft');
 
     return {
       monthlyTrend: Object.values(monthMap),
