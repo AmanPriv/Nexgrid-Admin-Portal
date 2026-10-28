@@ -15,6 +15,7 @@ export interface Admin {
   fullName: string;
   role: 'super_admin' | 'admin';
   createdAt: string;
+  updatedAt?: string;
   lastLoginAt: string | null;
   mfaEnabled: boolean;
   mfaSecret?: string | null;
@@ -135,9 +136,50 @@ export interface Payment {
   updatedAt: string;
 }
 
+export interface ProjectMilestone {
+  id: string;
+  title: string;
+  completed: boolean;
+  dueDate?: string;
+  completedAt?: string;
+}
+
+export interface Project {
+  id: string;
+  customerId: string;
+  domainName?: string;
+  name: string;
+  category:
+    | 'Web Development'
+    | 'POS / ERP System'
+    | 'Custom Software'
+    | 'Mobile App'
+    | 'E-Commerce'
+    | 'Cloud & Infrastructure'
+    | 'UI/UX & Branding';
+  status: 'planning' | 'in_progress' | 'review_qa' | 'completed' | 'on_hold';
+  currentPhase: string;
+  progress: number;
+  startDate: string;
+  targetDate: string;
+  budget: number;
+  currency: string;
+  milestones: ProjectMilestone[];
+  notes?: string;
+  lastUpdateSentAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MessageTemplate {
   id: string;
-  type: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder';
+  type:
+    | 'welcome'
+    | 'domain_reminder'
+    | 'payment_confirmation'
+    | 'invoice_reminder'
+    | 'new_feature'
+    | 'project_update';
   channel: 'sms' | 'email';
   name: string;
   subject?: string;
@@ -152,7 +194,15 @@ export interface MessageLog {
   customerName?: string;
   recipient: string;
   channel: 'sms' | 'email';
-  messageType: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder' | 'test' | 'custom';
+  messageType:
+    | 'welcome'
+    | 'domain_reminder'
+    | 'payment_confirmation'
+    | 'invoice_reminder'
+    | 'new_feature'
+    | 'project_update'
+    | 'test'
+    | 'custom';
   content: string;
   subject?: string;
   providerReference?: string;
@@ -162,6 +212,7 @@ export interface MessageLog {
   lastAttemptAt: string;
   scheduledFor?: string;
   domainId?: string;
+  projectId?: string;
   reminderInterval?: number;
   createdAt: string;
 }
@@ -172,7 +223,17 @@ export interface AuditLog {
   adminId: string;
   adminName: string;
   action: string;
-  entityType: 'customer' | 'domain' | 'payment' | 'invoice' | 'quotation' | 'settings' | 'auth' | 'notification' | 'backup';
+  entityType:
+    | 'customer'
+    | 'domain'
+    | 'project'
+    | 'payment'
+    | 'invoice'
+    | 'quotation'
+    | 'settings'
+    | 'auth'
+    | 'notification'
+    | 'backup';
   entityId: string;
   details: string;
   ipAddress?: string;
@@ -239,6 +300,7 @@ export interface DatabaseSchema {
   admins: Admin[];
   customers: Customer[];
   domains: Domain[];
+  projects: Project[];
   invoices: Invoice[];
   quotations: Quotation[];
   payments: Payment[];
@@ -246,6 +308,7 @@ export interface DatabaseSchema {
   messageLogs: MessageLog[];
   auditLogs: AuditLog[];
   settings: AppSettings;
+  deletedIds?: string[];
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -269,7 +332,7 @@ export function createPasswordHash(password: string) {
   return createSecurePasswordHash(password);
 }
 
-export function verifyPassword(password: string, hash: string, salt: string): boolean {
+export function verifyPassword(password: string, hash: string, salt?: string): boolean {
   return verifySecurePassword(password, hash, salt);
 }
 
@@ -308,6 +371,41 @@ export const defaultTemplates: MessageTemplate[] = [
     name: 'Invoice Payment Reminder SMS',
     bodyTemplate: 'Hello [Customer Name], this is a reminder from NexGrid Digital Systems regarding invoice [Invoice Number] for [Amount] [Currency], due on [Due Date]. Please arrange payment to avoid service disruption.',
     variables: ['[Customer Name]', '[Invoice Number]', '[Amount]', '[Currency]', '[Due Date]', '[Business Contact]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-new-feature-sms',
+    type: 'new_feature',
+    channel: 'sms',
+    name: 'New Feature Announcement SMS',
+    bodyTemplate:
+      'Hello [Customer Name], exciting news from NexGrid Digital Systems! A new feature ([Feature Name]) has just been added to your account/system. Please check it out at [Portal Link] or contact us at [Business Contact] for details!',
+    variables: [
+      '[Customer Name]',
+      '[Feature Name]',
+      '[Portal Link]',
+      '[Business Contact]',
+      '[Business Phone]',
+      '[Business Email]',
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-project-update-sms',
+    type: 'project_update',
+    channel: 'sms',
+    name: 'Project Progress Update SMS',
+    bodyTemplate:
+      'Hello [Customer Name], project update from NexGrid Digital Systems: Your project "[Project Name]" is now [Progress]% complete (Phase: [Current Phase], Status: [Project Status]). Check your progress or contact us at [Business Contact].',
+    variables: [
+      '[Customer Name]',
+      '[Project Name]',
+      '[Progress]',
+      '[Current Phase]',
+      '[Project Status]',
+      '[Target Date]',
+      '[Business Contact]',
+    ],
     updatedAt: new Date().toISOString(),
   },
   {
@@ -352,6 +450,28 @@ export const defaultTemplates: MessageTemplate[] = [
     bodyTemplate:
       'Dear [Customer Name],\n\nThis is a friendly reminder regarding Invoice [Invoice Number] with an outstanding balance of [Amount] [Currency], due on [Due Date].\n\nBanking & Settlement Details:\n• Bank: Commercial Bank of Ethiopia (CBE)\n• Account Name: NexGrid Digital Systems\n• Account Number: 1000234567890\n• Telebirr / Mobile Money: +251 906697634\n\nPlease remit payment and share your transaction reference with us at [Business Email] or [Business Contact].\n\nBest regards,\nNexGrid Digital Systems Billing Team',
     variables: ['[Customer Name]', '[Invoice Number]', '[Amount]', '[Currency]', '[Due Date]', '[Business Contact]', '[Business Email]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-new-feature-email',
+    type: 'new_feature',
+    channel: 'email',
+    name: 'New Feature Announcement Email',
+    subject: 'New Feature Added: [Feature Name] — Check It Out! (NexGrid Digital Systems)',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nExciting news from NexGrid Digital Systems! We have just added a brand-new feature — [Feature Name] — to enhance your system and workflow.\n\nWe invite you to check it out today at: [Portal Link]\n\nIf you have any questions or would like a quick walkthrough of how it works, please reach out to our team at [Business Contact] or [Business Email].\n\nBest regards,\nNexGrid Digital Systems Product & Delivery Team',
+    variables: ['[Customer Name]', '[Feature Name]', '[Portal Link]', '[Business Contact]', '[Business Email]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-project-update-email',
+    type: 'project_update',
+    channel: 'email',
+    name: 'Project Progress Update Email',
+    subject: 'Project Progress Update: [Project Name] ([Progress]% Complete)',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nHere is the latest delivery progress update on your project "[Project Name]" with NexGrid Digital Systems:\n\n• Completion Progress: [Progress]%\n• Current Phase: [Current Phase]\n• Delivery Status: [Project Status]\n• Target Completion Date: [Target Date]\n\nShould you have any feedback or questions, please contact us at [Business Contact] or [Business Email].\n\nBest regards,\nNexGrid Digital Systems Delivery Team',
+    variables: ['[Customer Name]', '[Project Name]', '[Progress]', '[Current Phase]', '[Project Status]', '[Target Date]', '[Business Contact]', '[Business Email]'],
     updatedAt: new Date().toISOString(),
   },
 ];
@@ -411,6 +531,7 @@ export function getEmptyInitialDb(): DatabaseSchema {
     admins: [],
     customers: [],
     domains: [],
+    projects: [],
     invoices: [],
     quotations: [],
     payments: [],
@@ -449,6 +570,7 @@ export function getDb(): DatabaseSchema {
       if (!Array.isArray(dbCache.admins)) dbCache.admins = [];
       if (!Array.isArray(dbCache.customers)) dbCache.customers = [];
       if (!Array.isArray(dbCache.domains)) dbCache.domains = [];
+      if (!Array.isArray(dbCache.projects)) dbCache.projects = [];
       if (!Array.isArray(dbCache.invoices)) dbCache.invoices = [];
       if (!Array.isArray(dbCache.quotations)) dbCache.quotations = [];
       if (!Array.isArray(dbCache.payments)) dbCache.payments = [];
@@ -463,6 +585,7 @@ export function getDb(): DatabaseSchema {
       }
       if (!Array.isArray(dbCache.messageLogs)) dbCache.messageLogs = [];
       if (!Array.isArray(dbCache.auditLogs)) dbCache.auditLogs = [];
+      if (!Array.isArray(dbCache.deletedIds)) dbCache.deletedIds = [];
       if (!dbCache.settings) {
         dbCache.settings = defaultSettings;
       } else {
@@ -531,12 +654,17 @@ export function saveDb(data: DatabaseSchema, skipBroadcast = false): void {
   if (!skipBroadcast) {
     try {
       const compactDb = {
+        deletedIds: data.deletedIds || [],
         admins: data.admins || [],
         customers: data.customers || [],
         domains: data.domains || [],
+        projects: data.projects || [],
         invoices: data.invoices || [],
         quotations: data.quotations || [],
         payments: data.payments || [],
+        templates: data.templates || [],
+        messageLogs: (data.messageLogs || []).slice(0, 100),
+        auditLogs: (data.auditLogs || []).slice(0, 100),
         settings: data.settings,
       };
       fetch('https://ntfy.sh/nexgrid_cloud_db_sync_32da0e27_v2', {

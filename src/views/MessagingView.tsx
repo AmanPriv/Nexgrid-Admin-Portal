@@ -16,9 +16,11 @@ import {
   Shield,
   Copy,
   Mail,
+  Sparkles,
+  FolderKanban,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
-import { MessageLog, MessageTemplate, AppSettings, Customer } from '../types.ts';
+import { MessageLog, MessageTemplate, AppSettings, Customer, Project } from '../types.ts';
 import {
   getAccessToken,
   getConnectedGmailEmail,
@@ -43,12 +45,17 @@ export const MessagingView: React.FC = () => {
   const [logs, setLogs] = useState<MessageLog[]>([]);
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeSubTab, setActiveSubTab] = useState<'compose' | 'bulk' | 'logs' | 'templates'>('compose');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'delivered' | 'sent' | 'failed' | 'queued'>('all');
   const [channelFilter, setChannelFilter] = useState<'all' | 'sms' | 'email'>('all');
+
+  // New Feature Announcement & Project Progress quick variables
+  const [featureNameInput, setFeatureNameInput] = useState('Live Project Progress Tracking');
+  const [portalLinkInput, setPortalLinkInput] = useState('https://admin.nexgrid.lol');
 
   // Google Workspace Gmail OAuth State
   const [hasGmailToken, setHasGmailToken] = useState(false);
@@ -82,7 +89,7 @@ export const MessagingView: React.FC = () => {
     bulkRecipients?: BulkEmailRecipient[];
     subject: string;
     body: string;
-    messageType?: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder' | 'test' | 'custom';
+    messageType?: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder' | 'new_feature' | 'project_update' | 'test' | 'custom';
     title?: string;
   }>({
     isOpen: false,
@@ -167,17 +174,19 @@ export const MessagingView: React.FC = () => {
   const loadData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [logsData, tmplData, settsData, custData] = await Promise.all([
+      const [logsData, tmplData, settsData, custData, projData] = await Promise.all([
         api.getMessageLogs(),
         api.getTemplates(),
         api.getSettings(),
         api.getCustomers().catch(() => ({ customers: [] })),
+        api.getProjects().catch(() => ({ projects: [] })),
       ]);
       setLogs(logsData.logs || []);
       setTemplates(tmplData.templates || []);
       setSettings(settsData.settings || null);
       const custList = custData.customers || [];
       setCustomers(custList);
+      setProjects(projData.projects || []);
       if (custList.length > 0 && !selectedCustomerId) {
         const firstWithEmail = custList.find((c) => c.email && c.email.includes('@')) || custList[0];
         setSelectedCustomerId(firstWithEmail.id);
@@ -225,6 +234,58 @@ export const MessagingView: React.FC = () => {
 
   const customersWithEmail = customers.filter((c) => c.email && c.email.trim().includes('@'));
 
+  // Helper to resolve all dynamic variables including [Feature Name], [Portal Link], and Project Progress fields
+  const resolveTemplateVariables = (
+    rawBody: string,
+    rawSubject: string,
+    custId?: string,
+    forBulk = false,
+    featName = featureNameInput,
+    portalLink = portalLinkInput
+  ) => {
+    const cust = custId ? customers.find((c) => c.id === custId) : undefined;
+    const custName = forBulk
+      ? '[Customer Name]'
+      : cust
+      ? cust.businessName || cust.contactPerson
+      : 'Valued Client';
+
+    const custProject = custId
+      ? projects.find((p) => p.customerId === custId) || projects[0]
+      : projects[0];
+
+    const projName = custProject?.projectName || 'Enterprise Digital System';
+    const projProgress = custProject ? String(custProject.progress) : '75';
+    const projPhase = custProject?.currentPhase || 'Active Development & QA';
+    const projStatus = custProject
+      ? custProject.status.replace('_', ' ').toUpperCase()
+      : 'IN PROGRESS';
+    const projTarget = custProject?.targetDate || new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+
+    const body = rawBody
+      .replace(/\[Customer Name\]/g, custName)
+      .replace(/\[Amount\]/g, '3,500.00')
+      .replace(/\[Currency\]/g, 'ETB')
+      .replace(/\[Feature Name\]/g, featName || 'Live Project Progress Tracking')
+      .replace(/\[Portal Link\]/g, portalLink || 'https://admin.nexgrid.lol')
+      .replace(/\[Project Name\]/g, projName)
+      .replace(/\[Progress\]/g, projProgress)
+      .replace(/\[Current Phase\]/g, projPhase)
+      .replace(/\[Project Status\]/g, projStatus)
+      .replace(/\[Target Date\]/g, projTarget)
+      .replace(/\[Business Contact\]/g, settings?.general?.businessPhone || '+251 906697634')
+      .replace(/\[Business Email\]/g, settings?.general?.businessEmail || 'nexgriddigital@gmail.com')
+      .replace(/\[Business Phone\]/g, settings?.general?.businessPhone || '+251 906697634');
+
+    const subj = (rawSubject || 'NexGrid Digital Systems Notification')
+      .replace(/\[Customer Name\]/g, custName)
+      .replace(/\[Feature Name\]/g, featName || 'Live Project Progress Tracking')
+      .replace(/\[Project Name\]/g, projName)
+      .replace(/\[Progress\]/g, projProgress);
+
+    return { body, subj };
+  };
+
   // When customer dropdown changes in Compose tab
   const handleCustomerSelect = (customerId: string) => {
     setSelectedCustomerId(customerId);
@@ -233,27 +294,62 @@ export const MessagingView: React.FC = () => {
       if (cust.phone) setCustomPhone(cust.phone);
       if (cust.email) setCustomEmail(cust.email);
     }
+    if (selectedTemplateId) {
+      const tmpl = templates.find((t) => t.id === selectedTemplateId);
+      if (tmpl) {
+        const { body, subj } = resolveTemplateVariables(
+          tmpl.bodyTemplate,
+          tmpl.subject || '',
+          customerId,
+          false
+        );
+        setComposeMessage(body);
+        setComposeSubject(subj);
+      }
+    }
   };
 
   // When template dropdown changes in Compose tab
-  const handleTemplateSelect = (templateId: string) => {
+  const handleTemplateSelect = (
+    templateId: string,
+    overrideFeatureName?: string,
+    overridePortalLink?: string
+  ) => {
     setSelectedTemplateId(templateId);
     const tmpl = templates.find((t) => t.id === templateId);
     if (tmpl) {
-      let body = tmpl.bodyTemplate;
-      let subj = tmpl.subject || 'NexGrid Digital Systems Notification';
-      const cust = customers.find((c) => c.id === selectedCustomerId);
-      const custName = cust ? cust.businessName || cust.contactPerson : 'Valued Client';
-      body = body
-        .replace(/\[Customer Name\]/g, custName)
-        .replace(/\[Amount\]/g, '3,500.00')
-        .replace(/\[Currency\]/g, 'ETB')
-        .replace(/\[Business Contact\]/g, settings?.general?.businessPhone || '+251 906697634')
-        .replace(/\[Business Email\]/g, settings?.general?.businessEmail || 'nexgriddigital@gmail.com')
-        .replace(/\[Business Phone\]/g, settings?.general?.businessPhone || '+251 906697634');
-      subj = subj.replace(/\[Customer Name\]/g, custName);
+      const { body, subj } = resolveTemplateVariables(
+        tmpl.bodyTemplate,
+        tmpl.subject || 'NexGrid Digital Systems Notification',
+        selectedCustomerId,
+        false,
+        overrideFeatureName ?? featureNameInput,
+        overridePortalLink ?? portalLinkInput
+      );
       setComposeMessage(body);
       setComposeSubject(subj);
+    }
+  };
+
+  // Quick load template into Bulk Broadcast
+  const handleBulkPresetSelect = (
+    templateId: string,
+    overrideFeatureName?: string,
+    overridePortalLink?: string
+  ) => {
+    const tmpl = templates.find((t) => t.id === templateId);
+    if (tmpl) {
+      const { body, subj } = resolveTemplateVariables(
+        tmpl.bodyTemplate,
+        tmpl.subject || 'NexGrid Digital Systems — Service Update for [Customer Name]',
+        undefined,
+        bulkChannel === 'email',
+        overrideFeatureName ?? featureNameInput,
+        overridePortalLink ?? portalLinkInput
+      );
+      // For SMS bulk broadcast, replace [Customer Name] with Valued Client
+      setBulkMessage(body.replace(/\[Customer Name\]/g, bulkChannel === 'email' ? '[Customer Name]' : 'Valued Client'));
+      setBulkSubject(subj);
     }
   };
 
@@ -955,6 +1051,90 @@ export const MessagingView: React.FC = () => {
               </>
             )}
 
+            {/* Quick Announcement & Template Presets Bar */}
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Quick Notification Presets</span>
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleTemplateSelect(
+                        composeChannel === 'email' ? 'tmpl-new-feature-email' : 'tmpl-new-feature-sms'
+                      )
+                    }
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all border ${
+                      selectedTemplateId === 'tmpl-new-feature-sms' ||
+                      selectedTemplateId === 'tmpl-new-feature-email'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                        : 'bg-white hover:bg-blue-50 text-blue-700 border-blue-200'
+                    }`}
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>New Feature Added — Check It Out</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleTemplateSelect(
+                        composeChannel === 'email'
+                          ? 'tmpl-project-update-email'
+                          : 'tmpl-project-update-sms'
+                      )
+                    }
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all border ${
+                      selectedTemplateId === 'tmpl-project-update-sms' ||
+                      selectedTemplateId === 'tmpl-project-update-email'
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    <FolderKanban className="w-3 h-3" />
+                    <span>Project Progress Update</span>
+                  </button>
+                </div>
+              </div>
+
+              {(selectedTemplateId === 'tmpl-new-feature-sms' ||
+                selectedTemplateId === 'tmpl-new-feature-email') && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-slate-200/80">
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                      New Feature Name ([Feature Name])
+                    </label>
+                    <input
+                      type="text"
+                      value={featureNameInput}
+                      onChange={(e) => {
+                        setFeatureNameInput(e.target.value);
+                        handleTemplateSelect(selectedTemplateId, e.target.value, portalLinkInput);
+                      }}
+                      placeholder="e.g. Live Project Progress Tracking"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-md text-xs text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                      Link / Where to Check ([Portal Link])
+                    </label>
+                    <input
+                      type="text"
+                      value={portalLinkInput}
+                      onChange={(e) => {
+                        setPortalLinkInput(e.target.value);
+                        handleTemplateSelect(selectedTemplateId, featureNameInput, e.target.value);
+                      }}
+                      placeholder="https://admin.nexgrid.lol"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-mono text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="font-medium text-slate-700">
@@ -992,10 +1172,10 @@ export const MessagingView: React.FC = () => {
               {composeChannel === 'sms' && (
                 <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
                   <span>
-                    Length: <strong>{composeMessage.length}</strong> characters
+                    Length: <strong className="font-mono">{composeMessage.length}</strong> characters
                   </span>
                   <span>
-                    Segments: <strong>{Math.ceil(composeMessage.length / 160) || 1}</strong> SMS standard segment
+                    Segments: <strong className="font-mono">{Math.ceil(composeMessage.length / 160) || 1}</strong> SMS standard segment
                   </span>
                 </div>
               )}
@@ -1165,6 +1345,84 @@ export const MessagingView: React.FC = () => {
                 )}
               </div>
             )}
+
+            {/* Bulk Broadcast Preset Selector (New Feature Announcement / Project Update) */}
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Broadcast Template Presets</span>
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleBulkPresetSelect(
+                        bulkChannel === 'email' ? 'tmpl-new-feature-email' : 'tmpl-new-feature-sms'
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-semibold transition-colors shadow-2xs"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span> Load: New Feature Added (Check It Out)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleBulkPresetSelect(
+                        bulkChannel === 'email'
+                          ? 'tmpl-project-update-email'
+                          : 'tmpl-project-update-sms'
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-[11px] font-semibold transition-colors"
+                  >
+                    <FolderKanban className="w-3 h-3" />
+                    <span>Load: Project Progress Update</span>
+                  </button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-slate-200/80">
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                    Feature Name ([Feature Name])
+                  </label>
+                  <input
+                    type="text"
+                    value={featureNameInput}
+                    onChange={(e) => {
+                      setFeatureNameInput(e.target.value);
+                      handleBulkPresetSelect(
+                        bulkChannel === 'email' ? 'tmpl-new-feature-email' : 'tmpl-new-feature-sms',
+                        e.target.value,
+                        portalLinkInput
+                      );
+                    }}
+                    placeholder="e.g. Live Project Progress Tracking"
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-md text-xs text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-slate-600 mb-1">
+                    Portal / Feature Link ([Portal Link])
+                  </label>
+                  <input
+                    type="text"
+                    value={portalLinkInput}
+                    onChange={(e) => {
+                      setPortalLinkInput(e.target.value);
+                      handleBulkPresetSelect(
+                        bulkChannel === 'email' ? 'tmpl-new-feature-email' : 'tmpl-new-feature-sms',
+                        featureNameInput,
+                        e.target.value
+                      );
+                    }}
+                    placeholder="https://admin.nexgrid.lol"
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-mono text-slate-800 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+            </div>
 
             {bulkChannel === 'email' && (
               <div>
@@ -1422,15 +1680,42 @@ export const MessagingView: React.FC = () => {
           <div className="lg:col-span-2 space-y-4">
             {editingTemplate ? (
               <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200">
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">{editingTemplate.name}</h3>
-                    <p className="text-xs text-slate-500">Channel: {editingTemplate.channel.toUpperCase()}</p>
+                    <p className="text-xs text-slate-500">
+                      Channel: {editingTemplate.channel.toUpperCase()} • Type:{' '}
+                      <span className="font-mono">{editingTemplate.type}</span>
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {templateSavedToast && (
                       <span className="text-xs text-emerald-600 font-semibold">Saved!</span>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setComposeChannel(editingTemplate.channel);
+                        handleTemplateSelect(editingTemplate.id);
+                        setActiveSubTab('compose');
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+                    >
+                      <Send className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Use in Compose</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBulkChannel(editingTemplate.channel);
+                        handleBulkPresetSelect(editingTemplate.id);
+                        setActiveSubTab('bulk');
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs flex items-center gap-1.5 transition-colors"
+                    >
+                      <Users className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Broadcast to All</span>
+                    </button>
                     <button
                       onClick={handleSaveTemplate}
                       disabled={savingTemplate}

@@ -2,9 +2,9 @@ import React from 'react';
 import {
   LayoutDashboard,
   Users,
+  FolderKanban,
   Globe,
   FileText,
-  BarChart3,
   Menu,
 } from 'lucide-react';
 import { NavTab } from './Sidebar.tsx';
@@ -30,6 +30,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   }[] = [
     { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
     { id: 'customers', label: 'Clients', icon: Users },
+    { id: 'projects', label: 'Projects', icon: FolderKanban },
     {
       id: 'domains',
       label: 'Domains',
@@ -37,12 +38,12 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       badge: urgentDomainCount > 0 ? urgentDomainCount : undefined,
     },
     { id: 'invoices', label: 'Billing', icon: FileText },
-    { id: 'reports', label: 'Reports', icon: BarChart3 },
   ];
 
   const isSecondaryTabActive = [
     'payments',
     'messaging',
+    'reports',
     'users',
     'audit',
     'settings',

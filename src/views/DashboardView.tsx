@@ -13,6 +13,7 @@ import {
   DollarSign,
   Activity,
   RotateCw,
+  FolderKanban,
 } from 'lucide-react';
 import { api } from '../services/api.ts';
 import { DashboardMetrics, Domain, Payment, AuditLog } from '../types.ts';
@@ -107,8 +108,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 1. Primary Financial & Customer Metrics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 1. Primary Financial, Project & Customer Metrics Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Total Confirmed Revenue */}
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs hover:border-slate-300 transition-all">
           <div className="flex items-center justify-between">
@@ -117,12 +118,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2 text-xl font-bold text-slate-900">
+          <div className="mt-2 text-xl font-bold text-slate-900 font-mono tabular-nums">
             {formatCurrency(metrics?.totalReceivedRevenue)}
           </div>
           <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Strictly verified & settled payments</span>
+            <span>Strictly verified &amp; settled</span>
           </div>
         </div>
 
@@ -134,13 +135,43 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Clock className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2 text-xl font-bold text-slate-900">
+          <div className="mt-2 text-xl font-bold text-slate-900 font-mono tabular-nums">
             {formatCurrency(metrics?.outstandingReceivables)}
           </div>
           <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
             <span>{metrics?.unpaidInvoicesCount || 0} unpaid</span>
             <span>·</span>
             <span className="text-rose-600 font-semibold">{metrics?.overdueInvoicesCount || 0} overdue</span>
+          </div>
+        </div>
+
+        {/* Project Progress & Delivery */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs hover:border-slate-300 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-slate-500">Project Progress</span>
+            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+              <FolderKanban className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-xl font-bold text-slate-900 font-mono tabular-nums">
+              {metrics?.avgProjectProgress || 0}%
+            </span>
+            <span className="text-[11px] text-slate-500">
+              avg ({metrics?.activeProjectsCount || 0} active)
+            </span>
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-[11px]">
+            <span className="text-emerald-600 font-medium">
+              {metrics?.completedProjectsCount || 0} completed
+            </span>
+            <button
+              onClick={() => onNavigate('projects')}
+              className="text-blue-600 hover:text-blue-700 font-medium flex items-center gap-0.5"
+            >
+              <span>Track</span>
+              <ArrowUpRight className="w-3 h-3" />
+            </button>
           </div>
         </div>
 
@@ -152,7 +183,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Users className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2 text-xl font-bold text-slate-900">
+          <div className="mt-2 text-xl font-bold text-slate-900 font-mono tabular-nums">
             {metrics?.totalCustomers || 0}
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px]">
@@ -175,8 +206,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Globe className="w-4 h-4" />
             </div>
           </div>
-          <div className="mt-2 text-xl font-bold text-slate-900">
-            {metrics?.activeDomains || 0} <span className="text-xs font-normal text-slate-500">active</span>
+          <div className="mt-2 text-xl font-bold text-slate-900 font-mono tabular-nums">
+            {metrics?.activeDomains || 0} <span className="text-xs font-sans font-normal text-slate-500">active</span>
           </div>
           <div className="mt-1 flex items-center gap-2 text-[11px]">
             <span className="text-amber-600 font-medium">

@@ -95,14 +95,15 @@ export function getCloudSyncStatus(): CloudSyncStatus {
 
 function mergeById<T extends { id: string; updatedAt?: string; createdAt?: string; timestamp?: string }>(
   localArr: T[] = [],
-  remoteArr: T[] = []
+  remoteArr: T[] = [],
+  deletedSet = new Set<string>()
 ): T[] {
   const map = new Map<string, T>();
   for (const item of localArr) {
-    if (item && item.id) map.set(item.id, item);
+    if (item && item.id && !deletedSet.has(item.id)) map.set(item.id, item);
   }
   for (const rItem of remoteArr) {
-    if (!rItem || !rItem.id) continue;
+    if (!rItem || !rItem.id || deletedSet.has(rItem.id)) continue;
     const existing = map.get(rItem.id);
     if (!existing) {
       map.set(rItem.id, rItem);
@@ -119,16 +120,17 @@ function mergeById<T extends { id: string; updatedAt?: string; createdAt?: strin
 
 function mergeDocumentsById<T extends { id: string; items?: any[]; subtotal?: number; total?: number; updatedAt?: string; createdAt?: string }>(
   localArr: T[] = [],
-  remoteArr: T[] = []
+  remoteArr: T[] = [],
+  deletedSet = new Set<string>()
 ): T[] {
   const map = new Map<string, T>();
   for (const item of localArr) {
-    if (item && item.id) {
+    if (item && item.id && !deletedSet.has(item.id)) {
       map.set(item.id, recalculateDocumentTotals(item as any) as unknown as T);
     }
   }
   for (const rawRemote of remoteArr) {
-    if (!rawRemote || !rawRemote.id) continue;
+    if (!rawRemote || !rawRemote.id || deletedSet.has(rawRemote.id)) continue;
     const rItem = recalculateDocumentTotals(rawRemote as any) as unknown as T;
     const existing = map.get(rItem.id);
     if (!existing) {
@@ -162,18 +164,28 @@ export function mergeDatabaseSnapshots(localDb: any, remoteDb: any): any {
     return remoteDb;
   }
 
+  const combinedDeleted = Array.from(
+    new Set([
+      ...(Array.isArray(localDb.deletedIds) ? localDb.deletedIds : []),
+      ...(Array.isArray(remoteDb.deletedIds) ? remoteDb.deletedIds : []),
+    ])
+  );
+  const deletedSet = new Set<string>(combinedDeleted);
+
   return {
     ...localDb,
     resetEpoch: Math.max(localReset, remoteReset),
-    admins: mergeById(localDb.admins, remoteDb.admins),
-    customers: mergeById(localDb.customers, remoteDb.customers),
-    domains: mergeById(localDb.domains, remoteDb.domains),
-    invoices: mergeDocumentsById(localDb.invoices, remoteDb.invoices),
-    quotations: mergeDocumentsById(localDb.quotations, remoteDb.quotations),
-    payments: mergeById(localDb.payments, remoteDb.payments),
-    templates: mergeById(localDb.templates, remoteDb.templates),
-    messageLogs: mergeById(localDb.messageLogs, remoteDb.messageLogs).slice(0, 300),
-    auditLogs: mergeById(localDb.auditLogs, remoteDb.auditLogs).slice(0, 300),
+    deletedIds: combinedDeleted,
+    admins: mergeById(localDb.admins, remoteDb.admins, deletedSet),
+    customers: mergeById(localDb.customers, remoteDb.customers, deletedSet),
+    domains: mergeById(localDb.domains, remoteDb.domains, deletedSet),
+    projects: mergeById(localDb.projects, remoteDb.projects, deletedSet),
+    invoices: mergeDocumentsById(localDb.invoices, remoteDb.invoices, deletedSet),
+    quotations: mergeDocumentsById(localDb.quotations, remoteDb.quotations, deletedSet),
+    payments: mergeById(localDb.payments, remoteDb.payments, deletedSet),
+    templates: mergeById(localDb.templates, remoteDb.templates, deletedSet),
+    messageLogs: mergeById(localDb.messageLogs, remoteDb.messageLogs, deletedSet).slice(0, 300),
+    auditLogs: mergeById(localDb.auditLogs, remoteDb.auditLogs, deletedSet).slice(0, 300),
     settings: {
       general: {
         ...(localDb.settings?.general || {}),
@@ -257,7 +269,9 @@ export async function pushCloudDatabaseState(dbState: any): Promise<void> {
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': endpoint.startsWith('/') ? 'application/json' : 'text/plain;charset=UTF-8',
+        },
         body: JSON.stringify({
           senderId: clientInstanceId,
           updatedAt: new Date().toISOString(),
@@ -276,12 +290,17 @@ export async function pushCloudDatabaseState(dbState: any): Promise<void> {
   try {
     const compactDb = {
       resetEpoch: dbState.resetEpoch || 0,
+      deletedIds: dbState.deletedIds || [],
       admins: dbState.admins || [],
       customers: dbState.customers || [],
       domains: dbState.domains || [],
+      projects: dbState.projects || [],
       invoices: dbState.invoices || [],
       quotations: dbState.quotations || [],
       payments: dbState.payments || [],
+      templates: dbState.templates || [],
+      messageLogs: (dbState.messageLogs || []).slice(0, 100),
+      auditLogs: (dbState.auditLogs || []).slice(0, 100),
       settings: dbState.settings,
     };
     fetch(`https://ntfy.sh/${NTFY_SYNC_TOPIC}`, {
@@ -344,7 +363,7 @@ export async function pullCloudDatabaseState(): Promise<any | null> {
 
   // 2. Also pull cached recent message from ntfy.sh topic (works 24/7 even on static GitHub Pages)
   try {
-    const res = await fetch(`https://ntfy.sh/${NTFY_SYNC_TOPIC}/json?poll=1&since=24h`);
+    const res = await fetch(`https://ntfy.sh/${NTFY_SYNC_TOPIC}/json?poll=1&since=48h`);
     if (res.ok) {
       const text = await res.text();
       const lines = text.split('\n').filter((l) => l.trim().length > 0);
@@ -430,6 +449,19 @@ export function initRealtimeMultiDeviceSync() {
   pullCloudDatabaseState().then((merged) => {
     if (merged) notifyDataUpdated();
   });
+
+  // Sync automatically whenever the browser tab/window regains focus or periodically
+  window.addEventListener('focus', () => {
+    pullCloudDatabaseState().then((merged) => {
+      if (merged) notifyDataUpdated();
+    });
+  });
+
+  setInterval(() => {
+    pullCloudDatabaseState().then((merged) => {
+      if (merged) notifyDataUpdated();
+    });
+  }, 20000);
 
   // Subscribe to real-time cross-device pub/sub stream
   const connectStream = () => {

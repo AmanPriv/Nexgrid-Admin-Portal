@@ -150,9 +150,53 @@ export interface Payment {
   updatedAt: string;
 }
 
+export interface ProjectMilestone {
+  id: string;
+  title: string;
+  completed: boolean;
+  dueDate?: string;
+  completedAt?: string;
+}
+
+export interface Project {
+  id: string;
+  customerId: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  domainName?: string;
+  name: string;
+  category:
+    | 'Web Development'
+    | 'POS / ERP System'
+    | 'Custom Software'
+    | 'Mobile App'
+    | 'E-Commerce'
+    | 'Cloud & Infrastructure'
+    | 'UI/UX & Branding';
+  status: 'planning' | 'in_progress' | 'review_qa' | 'completed' | 'on_hold';
+  currentPhase: string;
+  progress: number; // 0 to 100
+  startDate: string;
+  targetDate: string;
+  budget: number;
+  currency: string;
+  milestones: ProjectMilestone[];
+  notes?: string;
+  lastUpdateSentAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MessageTemplate {
   id: string;
-  type: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder';
+  type:
+    | 'welcome'
+    | 'domain_reminder'
+    | 'payment_confirmation'
+    | 'invoice_reminder'
+    | 'new_feature'
+    | 'project_update';
   channel: 'sms' | 'email';
   name: string;
   subject?: string;
@@ -167,7 +211,15 @@ export interface MessageLog {
   customerName?: string;
   recipient: string;
   channel: 'sms' | 'email';
-  messageType: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder' | 'test' | 'custom';
+  messageType:
+    | 'welcome'
+    | 'domain_reminder'
+    | 'payment_confirmation'
+    | 'invoice_reminder'
+    | 'new_feature'
+    | 'project_update'
+    | 'test'
+    | 'custom';
   content: string;
   subject?: string;
   providerReference?: string;
@@ -177,6 +229,7 @@ export interface MessageLog {
   lastAttemptAt: string;
   scheduledFor?: string;
   domainId?: string;
+  projectId?: string;
   reminderInterval?: number;
   createdAt: string;
 }
@@ -187,7 +240,17 @@ export interface AuditLog {
   adminId: string;
   adminName: string;
   action: string;
-  entityType: 'customer' | 'domain' | 'payment' | 'invoice' | 'quotation' | 'settings' | 'auth' | 'notification' | 'backup';
+  entityType:
+    | 'customer'
+    | 'domain'
+    | 'project'
+    | 'payment'
+    | 'invoice'
+    | 'quotation'
+    | 'settings'
+    | 'auth'
+    | 'notification'
+    | 'backup';
   entityId: string;
   details: string;
   ipAddress?: string;
@@ -206,6 +269,10 @@ export interface DashboardMetrics {
   overdueAmount: number;
   pendingQuotationsCount: number;
   pendingQuotationsValue: number;
+  totalProjects?: number;
+  activeProjectsCount?: number;
+  completedProjectsCount?: number;
+  avgProjectProgress?: number;
   currency: string;
 }
 

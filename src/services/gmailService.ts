@@ -8,7 +8,7 @@ export interface EmailSendPayload {
   body: string;
   customerId?: string;
   customerName?: string;
-  messageType?: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder' | 'test' | 'custom';
+  messageType?: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder' | 'new_feature' | 'project_update' | 'test' | 'custom';
   domainId?: string;
   companyProfile?: Partial<AppSettings['general']>;
 }
@@ -302,7 +302,7 @@ export async function sendBulkGmailMessages(params: {
   recipients: BulkEmailRecipient[];
   subject: string;
   bodyTemplate: string;
-  messageType?: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder' | 'test' | 'custom';
+  messageType?: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder' | 'new_feature' | 'project_update' | 'test' | 'custom';
   companyProfile?: Partial<AppSettings['general']>;
 }): Promise<{
   success: boolean;

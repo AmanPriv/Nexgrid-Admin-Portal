@@ -13,12 +13,14 @@ import {
   X,
   Shield,
   UserPlus,
+  FolderKanban,
 } from 'lucide-react';
 import { AdminUser } from '../types.ts';
 
 export type NavTab =
   | 'dashboard'
   | 'customers'
+  | 'projects'
   | 'domains'
   | 'invoices'
   | 'payments'
@@ -50,6 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     { id: 'dashboard' as NavTab, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'customers' as NavTab, label: 'Customers', icon: Users },
+    { id: 'projects' as NavTab, label: 'Projects & Progress', icon: FolderKanban },
     {
       id: 'domains' as NavTab,
       label: 'Domains',

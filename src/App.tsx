@@ -12,6 +12,7 @@ import { Header } from './components/Header.tsx';
 import { LoginView } from './views/LoginView.tsx';
 import { DashboardView } from './views/DashboardView.tsx';
 import { CustomersView } from './views/CustomersView.tsx';
+import { ProjectsView } from './views/ProjectsView.tsx';
 import { DomainsView } from './views/DomainsView.tsx';
 import { InvoicesView } from './views/InvoicesView.tsx';
 import { PaymentsView } from './views/PaymentsView.tsx';
@@ -31,6 +32,7 @@ export default function App() {
 
   // Quick Action / Cross-Tab Modal Triggers
   const [openNewCustomerModal, setOpenNewCustomerModal] = useState(false);
+  const [openNewProjectModal, setOpenNewProjectModal] = useState(false);
   const [openNewDomainModal, setOpenNewDomainModal] = useState(false);
   const [openNewInvoiceModal, setOpenNewInvoiceModal] = useState(false);
   const [openNewPaymentModal, setOpenNewPaymentModal] = useState(false);
@@ -104,10 +106,13 @@ export default function App() {
     }
   };
 
-  const handleQuickAction = (action: 'customer' | 'domain' | 'invoice' | 'payment') => {
+  const handleQuickAction = (action: 'customer' | 'project' | 'domain' | 'invoice' | 'payment') => {
     if (action === 'customer') {
       setCurrentTab('customers');
       setOpenNewCustomerModal(true);
+    } else if (action === 'project') {
+      setCurrentTab('projects');
+      setOpenNewProjectModal(true);
     } else if (action === 'domain') {
       setCurrentTab('domains');
       setOpenNewDomainModal(true);
@@ -190,6 +195,14 @@ export default function App() {
               key={`cust-${refreshKey}`}
               initialOpenNewModal={openNewCustomerModal}
               onResetNewModal={() => setOpenNewCustomerModal(false)}
+            />
+          )}
+
+          {currentTab === 'projects' && (
+            <ProjectsView
+              key={`proj-${refreshKey}`}
+              initialOpenNewModal={openNewProjectModal}
+              onResetNewModal={() => setOpenNewProjectModal(false)}
             />
           )}
 

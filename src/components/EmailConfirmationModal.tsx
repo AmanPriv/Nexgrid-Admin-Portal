@@ -40,7 +40,7 @@ export interface EmailConfirmationModalProps {
   bulkRecipients?: BulkEmailRecipient[];
   initialSubject: string;
   initialBody: string;
-  messageType?: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder' | 'test' | 'custom';
+  messageType?: 'welcome' | 'domain_reminder' | 'payment_confirmation' | 'invoice_reminder' | 'new_feature' | 'project_update' | 'test' | 'custom';
   title?: string;
 }
 

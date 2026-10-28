@@ -2,6 +2,7 @@ import {
   AdminUser,
   Customer,
   Domain,
+  Project,
   Invoice,
   Quotation,
   Payment,
@@ -16,14 +17,28 @@ import { recalculateDocumentTotals } from '../utils/pdfGenerator.ts';
 const STATIC_DB_KEY = 'nexgrid_cms_production_db_v2';
 const STATIC_SESSION_KEY = 'nexgrid_cms_active_admin_id';
 
+// Active session is strictly per page load in memory so loading the website on any device requires login
+let activeSessionAdminId: string | null = null;
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem(STATIC_SESSION_KEY);
+    sessionStorage.removeItem(STATIC_SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 interface StoredAdmin extends AdminUser {
   passwordHash: string;
+  salt?: string;
+  updatedAt?: string;
 }
 
 interface StaticDatabase {
   admins: StoredAdmin[];
   customers: Customer[];
   domains: Domain[];
+  projects: Project[];
   invoices: Invoice[];
   quotations: Quotation[];
   payments: Payment[];
@@ -31,6 +46,7 @@ interface StaticDatabase {
   messageLogs: MessageLog[];
   auditLogs: AuditLog[];
   settings: AppSettings;
+  deletedIds?: string[];
 }
 
 const defaultTemplates: MessageTemplate[] = [
@@ -97,6 +113,41 @@ const defaultTemplates: MessageTemplate[] = [
     updatedAt: new Date().toISOString(),
   },
   {
+    id: 'tmpl-new-feature-sms',
+    type: 'new_feature',
+    channel: 'sms',
+    name: 'New Feature Announcement SMS',
+    bodyTemplate:
+      'Hello [Customer Name], exciting news from NexGrid Digital Systems! A new feature ([Feature Name]) has just been added to your account/system. Please check it out at [Portal Link] or contact us at [Business Contact] for details!',
+    variables: [
+      '[Customer Name]',
+      '[Feature Name]',
+      '[Portal Link]',
+      '[Business Contact]',
+      '[Business Phone]',
+      '[Business Email]',
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-project-update-sms',
+    type: 'project_update',
+    channel: 'sms',
+    name: 'Project Progress Update SMS',
+    bodyTemplate:
+      'Hello [Customer Name], project update from NexGrid Digital Systems: Your project "[Project Name]" is now [Progress]% complete (Phase: [Current Phase], Status: [Project Status]). Check your progress or contact us at [Business Contact].',
+    variables: [
+      '[Customer Name]',
+      '[Project Name]',
+      '[Progress]',
+      '[Current Phase]',
+      '[Project Status]',
+      '[Target Date]',
+      '[Business Contact]',
+    ],
+    updatedAt: new Date().toISOString(),
+  },
+  {
     id: 'tmpl-welcome-email',
     type: 'welcome',
     channel: 'email',
@@ -138,6 +189,28 @@ const defaultTemplates: MessageTemplate[] = [
     bodyTemplate:
       'Dear [Customer Name],\n\nThis is a friendly reminder regarding Invoice [Invoice Number] with an outstanding balance of [Amount] [Currency], due on [Due Date].\n\nBanking & Settlement Details:\n• Bank: Commercial Bank of Ethiopia (CBE)\n• Account Name: NexGrid Digital Systems\n• Account Number: 1000234567890\n• Telebirr / Mobile Money: +251 906697634\n\nPlease remit payment and share your transaction reference with us at [Business Email] or [Business Contact].\n\nBest regards,\nNexGrid Digital Systems Billing Team',
     variables: ['[Customer Name]', '[Invoice Number]', '[Amount]', '[Currency]', '[Due Date]', '[Business Contact]', '[Business Email]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-new-feature-email',
+    type: 'new_feature',
+    channel: 'email',
+    name: 'New Feature Announcement Email',
+    subject: 'New Feature Added: [Feature Name] — Check It Out! (NexGrid Digital Systems)',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nExciting news from NexGrid Digital Systems! We have just added a brand-new feature — [Feature Name] — to enhance your system and workflow.\n\nWe invite you to check it out today at: [Portal Link]\n\nIf you have any questions or would like a quick walkthrough of how it works, please reach out to our team at [Business Contact] or [Business Email].\n\nBest regards,\nNexGrid Digital Systems Product & Delivery Team',
+    variables: ['[Customer Name]', '[Feature Name]', '[Portal Link]', '[Business Contact]', '[Business Email]'],
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: 'tmpl-project-update-email',
+    type: 'project_update',
+    channel: 'email',
+    name: 'Project Progress Update Email',
+    subject: 'Project Progress Update: [Project Name] ([Progress]% Complete)',
+    bodyTemplate:
+      'Dear [Customer Name],\n\nHere is the latest delivery progress update on your project "[Project Name]" with NexGrid Digital Systems:\n\n• Completion Progress: [Progress]%\n• Current Phase: [Current Phase]\n• Delivery Status: [Project Status]\n• Target Completion Date: [Target Date]\n\nShould you have any feedback or questions, please contact us at [Business Contact] or [Business Email].\n\nBest regards,\nNexGrid Digital Systems Delivery Team',
+    variables: ['[Customer Name]', '[Project Name]', '[Progress]', '[Current Phase]', '[Project Status]', '[Target Date]', '[Business Contact]', '[Business Email]'],
     updatedAt: new Date().toISOString(),
   },
 ];
@@ -195,6 +268,7 @@ function getEmptyStaticDb(): StaticDatabase {
     admins: [],
     customers: [],
     domains: [],
+    projects: [],
     invoices: [],
     quotations: [],
     payments: [],
@@ -202,6 +276,7 @@ function getEmptyStaticDb(): StaticDatabase {
     messageLogs: [],
     auditLogs: [],
     settings: JSON.parse(JSON.stringify(defaultSettings)),
+    deletedIds: [],
   };
 }
 
@@ -217,9 +292,11 @@ function loadDb(): StaticDatabase {
     if (!Array.isArray(parsed.admins)) parsed.admins = [];
     if (!Array.isArray(parsed.customers)) parsed.customers = [];
     if (!Array.isArray(parsed.domains)) parsed.domains = [];
+    if (!Array.isArray(parsed.projects)) parsed.projects = [];
     if (!Array.isArray(parsed.invoices)) parsed.invoices = [];
     if (!Array.isArray(parsed.quotations)) parsed.quotations = [];
     if (!Array.isArray(parsed.payments)) parsed.payments = [];
+    if (!Array.isArray(parsed.deletedIds)) parsed.deletedIds = [];
 
     let totalsHealed = false;
     parsed.invoices = parsed.invoices.map((inv) => {
@@ -726,14 +803,20 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
   const urlObj = new URL(endpoint, 'http://localhost');
   const pathname = urlObj.pathname;
 
-  if (pathname === '/api/auth/setup-status' || pathname === '/api/auth/login' || pathname === '/api/auth/firebase-google') {
+  if (
+    pathname === '/api/auth/setup-status' ||
+    pathname === '/api/auth/login' ||
+    pathname === '/api/auth/firebase-google' ||
+    pathname === '/api/users'
+  ) {
     await pullCloudDatabaseState().catch(() => {});
   }
 
   const db = loadDb();
 
-  const activeAdminId = localStorage.getItem(STATIC_SESSION_KEY);
-  const currentAdmin = db.admins.find((a) => a.id === activeAdminId) || db.admins[0] || null;
+  const currentAdmin = activeSessionAdminId
+    ? db.admins.find((a) => a.id === activeSessionAdminId) || null
+    : null;
 
   // 1. Setup Status
   if (pathname === '/api/auth/setup-status' && method === 'GET') {
@@ -763,6 +846,7 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     if (!admin) {
       if (db.admins.length === 0 || isOfficialAdminEmail) {
         const username = cleanEmail.split('@')[0].replace(/[^a-z0-9_-]/g, '') || 'admin';
+        const fallbackHash = hashPasswordSimple(`FirebaseAuth#${body.uid || Date.now()}!`);
         admin = {
           id: db.admins.length === 0 ? 'ADM-001' : `ADM-${String(db.admins.length + 1).padStart(3, '0')}`,
           username,
@@ -770,10 +854,12 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
           fullName: (body.fullName || 'Primary Administrator').trim(),
           role: 'super_admin',
           createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
           lastLoginAt: new Date().toISOString(),
           mfaEnabled: false,
           isPrimary: db.admins.length === 0,
-          passwordHash: hashPasswordSimple(`FirebaseAuth#${body.uid || Date.now()}!`),
+          passwordHash: fallbackHash,
+          salt: fallbackHash,
         };
         db.admins.push(admin);
         addAudit(
@@ -792,9 +878,10 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       }
     } else {
       admin.lastLoginAt = new Date().toISOString();
+      admin.updatedAt = new Date().toISOString();
       saveDb(db);
     }
-    localStorage.setItem(STATIC_SESSION_KEY, admin.id);
+    activeSessionAdminId = admin.id;
     const { passwordHash: _, ...cleanAdmin } = admin;
     return {
       token: `static-tok-${admin.id}-${Date.now()}`,
@@ -813,6 +900,7 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     if (!username || !email || !password) {
       throw new Error('Full Name, Username, Email, and Password are required.');
     }
+    const pwHash = hashPasswordSimple(password);
     const admin: StoredAdmin = {
       id: 'ADM-001',
       username: username.trim().toLowerCase(),
@@ -820,15 +908,17 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       fullName: (fullName || 'Primary Administrator').trim(),
       role: 'super_admin',
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString(),
       mfaEnabled: false,
       isPrimary: true,
-      passwordHash: hashPasswordSimple(password),
+      passwordHash: pwHash,
+      salt: pwHash,
     };
     db.admins.push(admin);
     addAudit(db, admin, 'PRIMARY_ADMIN_REGISTERED', 'auth', admin.id, `Primary administrator "${admin.username}" registered. Public signup permanently closed.`);
     saveDb(db);
-    localStorage.setItem(STATIC_SESSION_KEY, admin.id);
+    activeSessionAdminId = admin.id;
     const { passwordHash: _, ...cleanAdmin } = admin;
     return {
       success: true,
@@ -845,13 +935,22 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     const admin = db.admins.find(
       (a) => a.username.toLowerCase() === cleanUser || a.email.toLowerCase() === cleanUser
     );
-    if (!admin || admin.passwordHash !== hashPasswordSimple(body.password || '')) {
+    const expectedHash = hashPasswordSimple(body.password || '');
+    const isPasswordValid =
+      Boolean(admin) &&
+      (admin!.passwordHash === expectedHash ||
+        admin!.salt === expectedHash ||
+        (admin as any).staticPasswordHash === expectedHash);
+
+    if (!admin || !isPasswordValid) {
       throw new Error('Invalid username or password.');
     }
     admin.lastLoginAt = new Date().toISOString();
+    admin.updatedAt = new Date().toISOString();
+    if (!admin.salt) admin.salt = expectedHash;
     addAudit(db, admin, 'ADMIN_LOGIN', 'auth', admin.id, `Admin ${admin.username} signed in.`);
     saveDb(db);
-    localStorage.setItem(STATIC_SESSION_KEY, admin.id);
+    activeSessionAdminId = admin.id;
     const { passwordHash: _, ...cleanAdmin } = admin;
     return {
       token: `static-tok-${admin.id}-${Date.now()}`,
@@ -864,7 +963,9 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
   // 4. Current Admin (/api/auth/me)
   if (pathname === '/api/auth/me' && method === 'GET') {
     if (!currentAdmin) {
-      throw new Error('Not authenticated.');
+      const err: any = new Error('Authentication required. Please log in.');
+      err.status = 401;
+      throw err;
     }
     const { passwordHash: _, ...cleanAdmin } = currentAdmin;
     return {
@@ -875,25 +976,49 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
   }
 
   if (pathname === '/api/auth/logout' && method === 'POST') {
+    activeSessionAdminId = null;
     localStorage.removeItem(STATIC_SESSION_KEY);
     return { success: true };
   }
 
+  // Enforce authentication for all protected routes below
+  if (!currentAdmin) {
+    const err: any = new Error('Authentication required. Please log in.');
+    err.status = 401;
+    throw err;
+  }
+
+  if (pathname === '/api/auth/change-password' && method === 'POST') {
+    const { currentPassword, newPassword } = body;
+    const expectedCurrent = hashPasswordSimple(currentPassword || '');
+    const validCurrent =
+      currentAdmin.passwordHash === expectedCurrent ||
+      currentAdmin.salt === expectedCurrent;
+    if (!validCurrent) {
+      throw new Error('Incorrect current password.');
+    }
+    const nextHash = hashPasswordSimple(newPassword || '');
+    currentAdmin.passwordHash = nextHash;
+    currentAdmin.salt = nextHash;
+    currentAdmin.updatedAt = new Date().toISOString();
+    addAudit(db, currentAdmin, 'PASSWORD_CHANGED', 'auth', currentAdmin.id, 'Updated password.');
+    saveDb(db);
+    return { success: true, message: 'Password updated successfully across all synced devices.' };
+  }
+
   if (pathname === '/api/auth/sessions' && method === 'GET') {
     return {
-      sessions: currentAdmin
-        ? [
-            {
-              id: 'SES-LOCAL-1',
-              adminId: currentAdmin.id,
-              ipAddress: 'Browser Session',
-              userAgent: navigator.userAgent,
-              createdAt: new Date().toISOString(),
-              lastActiveAt: new Date().toISOString(),
-              isCurrent: true,
-            },
-          ]
-        : [],
+      sessions: [
+        {
+          id: 'SES-LOCAL-1',
+          adminId: currentAdmin.id,
+          ipAddress: 'Browser Session',
+          userAgent: navigator.userAgent,
+          createdAt: new Date().toISOString(),
+          lastActiveAt: new Date().toISOString(),
+          isCurrent: true,
+        },
+      ],
     };
   }
 
@@ -917,6 +1042,7 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     if (db.admins.some((a) => a.email.toLowerCase() === cleanEmail)) {
       throw new Error(`Email "${cleanEmail}" is already registered.`);
     }
+    const pwHash = hashPasswordSimple(password);
     const newUser: StoredAdmin = {
       id: `ADM-${String(db.admins.length + 1).padStart(3, '0')}-${Math.floor(100 + Math.random() * 900)}`,
       username: cleanUsername,
@@ -924,12 +1050,17 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       fullName: (fullName || '').trim(),
       role: role === 'super_admin' ? 'super_admin' : 'admin',
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       lastLoginAt: null,
       mfaEnabled: false,
       isPrimary: false,
-      passwordHash: hashPasswordSimple(password),
+      passwordHash: pwHash,
+      salt: pwHash,
     };
     db.admins.push(newUser);
+    if (Array.isArray(db.deletedIds)) {
+      db.deletedIds = db.deletedIds.filter((dId) => dId !== newUser.id);
+    }
     addAudit(db, currentAdmin, 'USER_ACCOUNT_CREATED', 'auth', newUser.id, `Created user "${newUser.username}"`);
     saveDb(db);
     const { passwordHash: _, ...cleanUser } = newUser;
@@ -942,7 +1073,15 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     if (!target) throw new Error('User not found.');
     if (body.fullName) target.fullName = body.fullName.trim();
     if (body.email) target.email = body.email.trim().toLowerCase();
-    if (body.newPassword) target.passwordHash = hashPasswordSimple(body.newPassword);
+    if (body.role && db.admins[0]?.id !== target.id) {
+      target.role = body.role === 'super_admin' ? 'super_admin' : 'admin';
+    }
+    if (body.newPassword) {
+      const nextHash = hashPasswordSimple(body.newPassword);
+      target.passwordHash = nextHash;
+      target.salt = nextHash;
+    }
+    target.updatedAt = new Date().toISOString();
     saveDb(db);
     const { passwordHash: _, ...cleanUser } = target;
     return { user: cleanUser };
@@ -952,7 +1091,11 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     const id = pathname.split('/').pop()!;
     const idx = db.admins.findIndex((a) => a.id === id);
     if (idx <= 0) throw new Error('Cannot delete the Primary Administrator account.');
-    db.admins.splice(idx, 1);
+    const removed = db.admins.splice(idx, 1)[0];
+    if (!Array.isArray(db.deletedIds)) db.deletedIds = [];
+    if (removed && !db.deletedIds.includes(removed.id)) {
+      db.deletedIds.push(removed.id);
+    }
     saveDb(db);
     return { success: true };
   }
@@ -966,6 +1109,17 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       .filter((p) => p.status === 'confirmed')
       .reduce((s, p) => s + p.amount, 0);
     const outstandingReceivables = Math.max(0, totalInvoiced - totalReceived);
+
+    const projectsList = db.projects || [];
+    const totalProjects = projectsList.length;
+    const activeProjectsCount = projectsList.filter(
+      (p) => p.status === 'planning' || p.status === 'in_progress' || p.status === 'review_qa'
+    ).length;
+    const completedProjectsCount = projectsList.filter((p) => p.status === 'completed').length;
+    const avgProjectProgress =
+      totalProjects > 0
+        ? Math.round(projectsList.reduce((s, p) => s + (Number(p.progress) || 0), 0) / totalProjects)
+        : 0;
 
     return {
       metrics: {
@@ -987,6 +1141,10 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
         overdueAmount: db.invoices.filter((i) => i.status === 'overdue').reduce((s, i) => s + i.total, 0),
         pendingQuotationsCount: db.quotations.filter((q) => q.status === 'sent' || q.status === 'draft').length,
         pendingQuotationsValue: db.quotations.filter((q) => q.status === 'sent' || q.status === 'draft').reduce((s, q) => s + q.total, 0),
+        totalProjects,
+        activeProjectsCount,
+        completedProjectsCount,
+        avgProjectProgress,
         currency: db.settings.general.currency || 'ETB',
       },
       upcomingDomainRenewals: db.domains.slice(0, 8).map((d) => {
@@ -1370,6 +1528,231 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     addAudit(db, currentAdmin, 'DOMAIN_UPDATED', 'domain', domain.id, `Updated domain ${domain.domainName}`);
     saveDb(db);
     return { domain };
+  }
+
+  // 8B. Projects (Project Progress Tracking)
+  if (pathname === '/api/projects' && method === 'GET') {
+    const search = (urlObj.searchParams.get('search') || '').toLowerCase();
+    const status = urlObj.searchParams.get('status') || 'all';
+    if (!Array.isArray(db.projects)) db.projects = [];
+
+    let list = db.projects.map((p) => {
+      const cust = db.customers.find((c) => c.id === p.customerId);
+      return {
+        ...p,
+        customerName: cust ? cust.businessName || cust.contactPerson : p.customerName || 'Client',
+        customerPhone: cust?.phone || p.customerPhone || '',
+        customerEmail: cust?.email || p.customerEmail || '',
+      };
+    });
+
+    if (status && status !== 'all') {
+      list = list.filter((p) => p.status === status);
+    }
+
+    if (search) {
+      list = list.filter(
+        (p) =>
+          p.name.toLowerCase().includes(search) ||
+          (p.customerName && p.customerName.toLowerCase().includes(search)) ||
+          (p.domainName && p.domainName.toLowerCase().includes(search)) ||
+          p.currentPhase.toLowerCase().includes(search) ||
+          p.id.toLowerCase().includes(search)
+      );
+    }
+
+    list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return { projects: list };
+  }
+
+  if (pathname === '/api/projects' && method === 'POST') {
+    if (!Array.isArray(db.projects)) db.projects = [];
+    const cust = db.customers.find((c) => c.id === body.customerId);
+    const clampedProgress = Math.min(100, Math.max(0, Number(body.progress) || 0));
+    const cleanMilestones = Array.isArray(body.milestones)
+      ? body.milestones.map((m: any, idx: number) => ({
+          id: m.id || `ms-${Date.now()}-${idx + 1}`,
+          title: String(m.title || '').trim() || `Milestone ${idx + 1}`,
+          completed: Boolean(m.completed),
+          dueDate: m.dueDate || undefined,
+          completedAt: m.completed ? m.completedAt || new Date().toISOString() : undefined,
+        }))
+      : [];
+
+    const newProject: Project = {
+      id: `PRJ-${1001 + db.projects.length}`,
+      customerId: body.customerId,
+      customerName: cust ? cust.businessName || cust.contactPerson : 'Client',
+      customerPhone: cust?.phone || '',
+      customerEmail: cust?.email || '',
+      domainName: body.domainName ? String(body.domainName).trim() : undefined,
+      name: String(body.name || 'New Project').trim(),
+      category: body.category || 'Web Development',
+      status:
+        clampedProgress === 100
+          ? 'completed'
+          : ['planning', 'in_progress', 'review_qa', 'completed', 'on_hold'].includes(body.status)
+          ? body.status
+          : 'in_progress',
+      currentPhase: String(body.currentPhase || 'Requirements & Architecture').trim(),
+      progress: clampedProgress,
+      startDate: body.startDate || new Date().toISOString().slice(0, 10),
+      targetDate: body.targetDate || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+      budget: Math.max(0, Number(body.budget) || 0),
+      currency: db.settings.general.currency || 'ETB',
+      milestones: cleanMilestones,
+      notes: body.notes ? String(body.notes).trim() : undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    db.projects.unshift(newProject);
+    addAudit(
+      db,
+      currentAdmin,
+      'PROJECT_CREATED',
+      'project',
+      newProject.id,
+      `Created project "${newProject.name}" for ${newProject.customerName} (${newProject.progress}% complete)`
+    );
+    saveDb(db);
+    return { project: newProject };
+  }
+
+  if (pathname.startsWith('/api/projects/') && pathname.endsWith('/send-update') && method === 'POST') {
+    if (!Array.isArray(db.projects)) db.projects = [];
+    const prjId = pathname.split('/')[3];
+    const project = db.projects.find((p) => p.id === prjId);
+    if (!project) {
+      return { success: false, status: 'failed', messageId: '', error: 'Project not found.' };
+    }
+    const cust = db.customers.find((c) => c.id === project.customerId);
+    const targetPhone = (cust?.phone || project.customerPhone || '').trim();
+    if (!targetPhone) {
+      return {
+        success: false,
+        status: 'failed',
+        messageId: '',
+        error: 'Customer phone number is missing. Add a phone number to this customer first.',
+      };
+    }
+
+    const statusLabels: Record<string, string> = {
+      planning: 'Planning',
+      in_progress: 'In Progress',
+      review_qa: 'Review & QA',
+      completed: 'Completed',
+      on_hold: 'On Hold',
+    };
+
+    let messageText = (body.customMessage || '').trim();
+    if (!messageText) {
+      const tmpl = db.templates.find((t) => t.type === 'project_update' && t.channel === 'sms');
+      const tmplStr =
+        tmpl?.bodyTemplate ||
+        'Hello [Customer Name], project update from NexGrid Digital Systems: Your project "[Project Name]" is now [Progress]% complete (Phase: [Current Phase], Status: [Project Status]). Check your progress or contact us at [Business Contact].';
+      messageText = renderTemplate(tmplStr, {
+        'Customer Name': cust?.businessName || cust?.contactPerson || project.customerName || 'Valued Client',
+        'Project Name': project.name,
+        'Progress': project.progress,
+        'Current Phase': project.currentPhase,
+        'Project Status': statusLabels[project.status] || project.status,
+        'Target Date': project.targetDate,
+        'Business Contact': db.settings.general.businessPhone || '+251 906697634',
+      });
+    }
+
+    const result = await sendSmsBrowser(
+      db,
+      targetPhone,
+      messageText,
+      cust?.id || project.customerId,
+      cust?.businessName || project.customerName || 'Client',
+      'project_update'
+    );
+
+    if (result.success) {
+      project.lastUpdateSentAt = new Date().toISOString();
+      project.updatedAt = new Date().toISOString();
+    }
+
+    addAudit(
+      db,
+      currentAdmin,
+      'PROJECT_UPDATE_SMS_SENT',
+      'notification',
+      project.id,
+      `Sent project progress update SMS for "${project.name}" (${project.progress}%) to ${targetPhone}`
+    );
+    saveDb(db);
+    return result;
+  }
+
+  if (pathname.startsWith('/api/projects/') && method === 'PUT') {
+    if (!Array.isArray(db.projects)) db.projects = [];
+    const prjId = pathname.split('/')[3];
+    const project = db.projects.find((p) => p.id === prjId);
+    if (!project) throw new Error('Project not found.');
+
+    if (body.customerId) project.customerId = body.customerId;
+    if (body.domainName !== undefined) project.domainName = String(body.domainName).trim() || undefined;
+    if (body.name !== undefined && String(body.name).trim()) project.name = String(body.name).trim();
+    if (body.category) project.category = body.category;
+    if (body.currentPhase !== undefined) project.currentPhase = String(body.currentPhase).trim();
+    if (body.progress !== undefined) {
+      project.progress = Math.min(100, Math.max(0, Number(body.progress) || 0));
+    }
+    if (body.status) {
+      project.status = body.status;
+      if (body.status === 'completed') project.progress = 100;
+    } else if (project.progress === 100 && project.status !== 'completed') {
+      project.status = 'completed';
+    }
+    if (body.startDate) project.startDate = body.startDate;
+    if (body.targetDate) project.targetDate = body.targetDate;
+    if (body.budget !== undefined) project.budget = Math.max(0, Number(body.budget) || 0);
+    if (Array.isArray(body.milestones)) {
+      project.milestones = body.milestones.map((m: any, idx: number) => ({
+        id: m.id || `ms-${Date.now()}-${idx + 1}`,
+        title: String(m.title || '').trim() || `Milestone ${idx + 1}`,
+        completed: Boolean(m.completed),
+        dueDate: m.dueDate || undefined,
+        completedAt: m.completed ? m.completedAt || new Date().toISOString() : undefined,
+      }));
+    }
+    if (body.notes !== undefined) project.notes = String(body.notes).trim();
+    project.updatedAt = new Date().toISOString();
+
+    const cust = db.customers.find((c) => c.id === project.customerId);
+    project.customerName = cust ? cust.businessName || cust.contactPerson : project.customerName || 'Client';
+    project.customerPhone = cust?.phone || project.customerPhone || '';
+    project.customerEmail = cust?.email || project.customerEmail || '';
+
+    addAudit(
+      db,
+      currentAdmin,
+      'PROJECT_UPDATED',
+      'project',
+      project.id,
+      `Updated project "${project.name}" (${project.progress}% complete, Status: ${project.status})`
+    );
+    saveDb(db);
+    return { project };
+  }
+
+  if (pathname.startsWith('/api/projects/') && method === 'DELETE') {
+    if (!Array.isArray(db.projects)) db.projects = [];
+    const prjId = pathname.split('/')[3];
+    const idx = db.projects.findIndex((p) => p.id === prjId);
+    if (idx === -1) throw new Error('Project not found.');
+    const removed = db.projects.splice(idx, 1)[0];
+    if (!Array.isArray(db.deletedIds)) db.deletedIds = [];
+    if (removed && !db.deletedIds.includes(removed.id)) {
+      db.deletedIds.push(removed.id);
+    }
+    addAudit(db, currentAdmin, 'PROJECT_DELETED', 'project', removed.id, `Deleted project "${removed.name}"`);
+    saveDb(db);
+    return { success: true };
   }
 
   // 9. Invoices, Quotations, Payments
@@ -1787,6 +2170,8 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
       'domain_reminder',
       'payment_confirmation',
       'invoice_reminder',
+      'new_feature',
+      'project_update',
       'test',
       'custom',
     ].includes(body.messageType)
@@ -1980,6 +2365,7 @@ export async function handleStaticApiRequest(endpoint: string, options: RequestI
     const uploaded = body.data || body;
     if (Array.isArray(uploaded.customers)) db.customers = uploaded.customers;
     if (Array.isArray(uploaded.domains)) db.domains = uploaded.domains;
+    if (Array.isArray(uploaded.projects)) db.projects = uploaded.projects;
     if (Array.isArray(uploaded.invoices)) db.invoices = uploaded.invoices.map((i: Invoice) => recalculateDocumentTotals(i));
     if (Array.isArray(uploaded.quotations)) db.quotations = uploaded.quotations.map((q: Quotation) => recalculateDocumentTotals(q));
     if (Array.isArray(uploaded.payments)) db.payments = uploaded.payments;

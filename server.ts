@@ -23,6 +23,7 @@ import {
   type Admin,
   type Customer,
   type Domain,
+  type Project,
   type Invoice,
   type Quotation,
   type Payment,
@@ -863,11 +864,15 @@ app.post('/api/users', requireAuth, (req: AuthenticatedRequest, res) => {
     fullName: fullName.trim(),
     role: role === 'super_admin' ? 'super_admin' : 'admin',
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     lastLoginAt: null,
     mfaEnabled: false,
   };
 
   db.admins.push(newUser);
+  if (Array.isArray(db.deletedIds)) {
+    db.deletedIds = db.deletedIds.filter((dId) => dId !== newUser.id);
+  }
   saveDb(db);
 
   logAudit(
@@ -933,6 +938,7 @@ app.put('/api/users/:id', requireAuth, (req: AuthenticatedRequest, res) => {
     revokeAllSessionsForAdmin(targetUser.id);
   }
 
+  targetUser.updatedAt = new Date().toISOString();
   saveDb(db);
 
   logAudit(
@@ -979,6 +985,10 @@ app.delete('/api/users/:id', requireAuth, (req: AuthenticatedRequest, res) => {
   const removed = db.admins[targetIndex];
   revokeAllSessionsForAdmin(removed.id);
   db.admins.splice(targetIndex, 1);
+  if (!Array.isArray(db.deletedIds)) db.deletedIds = [];
+  if (!db.deletedIds.includes(removed.id)) {
+    db.deletedIds.push(removed.id);
+  }
   saveDb(db);
 
   logAudit(
@@ -1042,6 +1052,17 @@ app.get('/api/dashboard/stats', requireAuth, (req, res) => {
   // Recent activity / audit logs
   const recentActivity = db.auditLogs.slice(0, 8);
 
+  const projectsList = db.projects || [];
+  const totalProjects = projectsList.length;
+  const activeProjectsCount = projectsList.filter(
+    (p) => p.status === 'planning' || p.status === 'in_progress' || p.status === 'review_qa'
+  ).length;
+  const completedProjectsCount = projectsList.filter((p) => p.status === 'completed').length;
+  const avgProjectProgress =
+    totalProjects > 0
+      ? Math.round(projectsList.reduce((s, p) => s + (Number(p.progress) || 0), 0) / totalProjects)
+      : 0;
+
   res.json({
     metrics: {
       totalCustomers,
@@ -1056,6 +1077,10 @@ app.get('/api/dashboard/stats', requireAuth, (req, res) => {
       overdueAmount: financials.overdueAmount,
       pendingQuotationsCount: financials.pendingQuotationsCount,
       pendingQuotationsValue: financials.pendingQuotationsValue,
+      totalProjects,
+      activeProjectsCount,
+      completedProjectsCount,
+      avgProjectProgress,
       currency: financials.currency,
     },
     upcomingDomainRenewals,
@@ -1638,6 +1663,294 @@ app.post('/api/domains/:id/send-reminder', requireAuth, async (req: Authenticate
     'notification',
     domain.id,
     `Dispatched domain renewal reminder for ${domain.domainName} to ${customer.phone} (Status: ${result.status})`
+  );
+
+  res.json(result);
+});
+
+// ================= 4B. PROJECT PROGRESS TRACKING =================
+app.get('/api/projects', requireAuth, (req, res) => {
+  const db = getDb();
+  const search = ((req.query.search as string) || '').toLowerCase().trim();
+  const status = (req.query.status as string) || 'all';
+
+  let list = (db.projects || []).map((proj) => {
+    const customer = db.customers.find((c) => c.id === proj.customerId);
+    return {
+      ...proj,
+      customerName: customer ? customer.businessName || customer.contactPerson : proj.customerId || 'Client',
+      customerPhone: customer?.phone || '',
+      customerEmail: customer?.email || '',
+    };
+  });
+
+  if (status !== 'all') {
+    list = list.filter((p) => p.status === status);
+  }
+
+  if (search) {
+    list = list.filter(
+      (p) =>
+        p.name.toLowerCase().includes(search) ||
+        (p.customerName && p.customerName.toLowerCase().includes(search)) ||
+        (p.domainName && p.domainName.toLowerCase().includes(search)) ||
+        p.currentPhase.toLowerCase().includes(search) ||
+        p.id.toLowerCase().includes(search)
+    );
+  }
+
+  list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  res.json({ projects: list });
+});
+
+app.post('/api/projects', requireAuth, (req: AuthenticatedRequest, res) => {
+  const {
+    customerId,
+    domainName,
+    name,
+    category,
+    status,
+    currentPhase,
+    progress,
+    startDate,
+    targetDate,
+    budget,
+    milestones,
+    notes,
+  } = req.body;
+
+  if (!customerId || !name || !String(name).trim()) {
+    return res.status(400).json({ error: 'Customer and Project Name are required.' });
+  }
+
+  const db = getDb();
+  if (!Array.isArray(db.projects)) db.projects = [];
+  const customer = db.customers.find((c) => c.id === customerId);
+  if (!customer) {
+    return res.status(400).json({ error: 'Selected customer not found.' });
+  }
+
+  const id = `PRJ-${db.projects.length + 1001}`;
+  const cleanMilestones = Array.isArray(milestones)
+    ? milestones.map((m: any, idx: number) => ({
+        id: m.id || `ms-${Date.now()}-${idx + 1}`,
+        title: String(m.title || '').trim() || `Milestone ${idx + 1}`,
+        completed: Boolean(m.completed),
+        dueDate: m.dueDate || undefined,
+        completedAt: m.completed ? m.completedAt || new Date().toISOString() : undefined,
+      }))
+    : [];
+
+  const clampedProgress = Math.min(100, Math.max(0, Number(progress) || 0));
+  const resolvedStatus =
+    clampedProgress === 100
+      ? 'completed'
+      : ['planning', 'in_progress', 'review_qa', 'completed', 'on_hold'].includes(status)
+      ? status
+      : 'in_progress';
+
+  const newProject: Project = {
+    id,
+    customerId,
+    domainName: domainName ? String(domainName).trim() : undefined,
+    name: String(name).trim(),
+    category: category || 'Web Development',
+    status: resolvedStatus,
+    currentPhase: String(currentPhase || 'Requirements & Architecture').trim(),
+    progress: clampedProgress,
+    startDate: startDate || new Date().toISOString().slice(0, 10),
+    targetDate: targetDate || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+    budget: Math.max(0, Number(budget) || 0),
+    currency: db.settings.general.currency || 'ETB',
+    milestones: cleanMilestones,
+    notes: notes ? String(notes).trim() : undefined,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  db.projects.unshift(newProject);
+  saveDb(db);
+
+  logAudit(
+    req.admin!.id,
+    req.admin!.fullName,
+    'PROJECT_CREATED',
+    'project',
+    newProject.id,
+    `Created project "${newProject.name}" for ${customer.businessName} (${newProject.progress}% complete)`
+  );
+
+  res.status(201).json({
+    project: {
+      ...newProject,
+      customerName: customer.businessName || customer.contactPerson,
+      customerPhone: customer.phone,
+      customerEmail: customer.email,
+    },
+  });
+});
+
+app.put('/api/projects/:id', requireAuth, (req: AuthenticatedRequest, res) => {
+  const db = getDb();
+  if (!Array.isArray(db.projects)) db.projects = [];
+  const project = db.projects.find((p) => p.id === req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found.' });
+  }
+
+  const {
+    customerId,
+    domainName,
+    name,
+    category,
+    status,
+    currentPhase,
+    progress,
+    startDate,
+    targetDate,
+    budget,
+    milestones,
+    notes,
+  } = req.body;
+
+  if (customerId) project.customerId = customerId;
+  if (domainName !== undefined) project.domainName = String(domainName).trim() || undefined;
+  if (name !== undefined && String(name).trim()) project.name = String(name).trim();
+  if (category) project.category = category;
+  if (currentPhase !== undefined) project.currentPhase = String(currentPhase).trim();
+  if (progress !== undefined) {
+    project.progress = Math.min(100, Math.max(0, Number(progress) || 0));
+  }
+  if (status) {
+    project.status = status;
+    if (status === 'completed') project.progress = 100;
+  } else if (project.progress === 100 && project.status !== 'completed') {
+    project.status = 'completed';
+  }
+  if (startDate) project.startDate = startDate;
+  if (targetDate) project.targetDate = targetDate;
+  if (budget !== undefined) project.budget = Math.max(0, Number(budget) || 0);
+  if (Array.isArray(milestones)) {
+    project.milestones = milestones.map((m: any, idx: number) => ({
+      id: m.id || `ms-${Date.now()}-${idx + 1}`,
+      title: String(m.title || '').trim() || `Milestone ${idx + 1}`,
+      completed: Boolean(m.completed),
+      dueDate: m.dueDate || undefined,
+      completedAt: m.completed ? m.completedAt || new Date().toISOString() : undefined,
+    }));
+  }
+  if (notes !== undefined) project.notes = String(notes).trim();
+  project.updatedAt = new Date().toISOString();
+
+  saveDb(db);
+
+  const customer = db.customers.find((c) => c.id === project.customerId);
+
+  logAudit(
+    req.admin!.id,
+    req.admin!.fullName,
+    'PROJECT_UPDATED',
+    'project',
+    project.id,
+    `Updated project "${project.name}" — Progress: ${project.progress}%, Phase: ${project.currentPhase}, Status: ${project.status}`
+  );
+
+  res.json({
+    project: {
+      ...project,
+      customerName: customer ? customer.businessName || customer.contactPerson : 'Client',
+      customerPhone: customer?.phone || '',
+      customerEmail: customer?.email || '',
+    },
+  });
+});
+
+app.delete('/api/projects/:id', requireAuth, (req: AuthenticatedRequest, res) => {
+  const db = getDb();
+  if (!Array.isArray(db.projects)) db.projects = [];
+  const idx = db.projects.findIndex((p) => p.id === req.params.id);
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Project not found.' });
+  }
+  const removed = db.projects.splice(idx, 1)[0];
+  if (!Array.isArray(db.deletedIds)) db.deletedIds = [];
+  if (!db.deletedIds.includes(removed.id)) {
+    db.deletedIds.push(removed.id);
+  }
+  saveDb(db);
+
+  logAudit(
+    req.admin!.id,
+    req.admin!.fullName,
+    'PROJECT_DELETED',
+    'project',
+    removed.id,
+    `Deleted project "${removed.name}"`
+  );
+
+  res.json({ success: true });
+});
+
+app.post('/api/projects/:id/send-update', requireAuth, async (req: AuthenticatedRequest, res) => {
+  const db = getDb();
+  if (!Array.isArray(db.projects)) db.projects = [];
+  const project = db.projects.find((p) => p.id === req.params.id);
+  if (!project) {
+    return res.status(404).json({ error: 'Project not found.' });
+  }
+
+  const customer = db.customers.find((c) => c.id === project.customerId);
+  if (!customer || !customer.phone) {
+    return res.status(400).json({ error: 'Customer phone number is missing.' });
+  }
+
+  const statusLabels: Record<string, string> = {
+    planning: 'Planning',
+    in_progress: 'In Progress',
+    review_qa: 'Review & QA',
+    completed: 'Completed',
+    on_hold: 'On Hold',
+  };
+
+  let messageText = req.body?.customMessage;
+  if (!messageText) {
+    const tmpl = db.templates.find((t) => t.type === 'project_update' && t.channel === 'sms');
+    const tmplStr =
+      tmpl?.bodyTemplate ||
+      'Hello [Customer Name], project update from NexGrid Digital Systems: Your project "[Project Name]" is now [Progress]% complete (Phase: [Current Phase], Status: [Project Status]). Check your progress or contact us at [Business Contact].';
+
+    messageText = renderTemplate(tmplStr, {
+      'Customer Name': customer.businessName || customer.contactPerson,
+      'Project Name': project.name,
+      'Progress': project.progress,
+      'Current Phase': project.currentPhase,
+      'Project Status': statusLabels[project.status] || project.status,
+      'Target Date': project.targetDate,
+      'Business Contact': db.settings.general.businessPhone || '+251 906697634',
+    });
+  }
+
+  const result = await queueAndSendSms({
+    customerId: customer.id,
+    customerName: customer.businessName,
+    recipient: customer.phone,
+    messageType: 'project_update',
+    content: messageText,
+  });
+
+  if (result.status === 'sent' || result.status === 'delivered') {
+    project.lastUpdateSentAt = new Date().toISOString();
+    project.updatedAt = new Date().toISOString();
+    saveDb(db);
+  }
+
+  logAudit(
+    req.admin!.id,
+    req.admin!.fullName,
+    'PROJECT_UPDATE_SMS_SENT',
+    'notification',
+    project.id,
+    `Sent project progress update SMS for "${project.name}" (${project.progress}%) to ${customer.phone}`
   );
 
   res.json(result);
@@ -2249,6 +2562,8 @@ app.post('/api/messages/log-email', requireAuth, (req: AuthenticatedRequest, res
     'domain_reminder',
     'payment_confirmation',
     'invoice_reminder',
+    'new_feature',
+    'project_update',
     'test',
     'custom',
   ].includes(messageType)
@@ -2919,6 +3234,7 @@ app.post('/api/backup/restore', requireAuth, (req: AuthenticatedRequest, res) =>
     admins: uploaded.admins && uploaded.admins.length > 0 ? uploaded.admins : currentAdmins,
     customers: uploaded.customers,
     domains: uploaded.domains,
+    projects: uploaded.projects || db.projects || [],
     invoices: uploaded.invoices,
     quotations: uploaded.quotations || [],
     payments: uploaded.payments,
@@ -3038,14 +3354,15 @@ app.get('/api/export/csv/:entity', requireAuth, (req, res) => {
 // ================= 11. FIREBASE & CROSS-DEVICE CLOUD SYNC =================
 function mergeEntitiesById<T extends { id: string; updatedAt?: string; createdAt?: string; timestamp?: string }>(
   target: T[] = [],
-  incoming: T[] = []
+  incoming: T[] = [],
+  deletedSet = new Set<string>()
 ): T[] {
   const map = new Map<string, T>();
   for (const item of target) {
-    if (item && item.id) map.set(item.id, item);
+    if (item && item.id && !deletedSet.has(item.id)) map.set(item.id, item);
   }
   for (const inc of incoming) {
-    if (!inc || !inc.id) continue;
+    if (!inc || !inc.id || deletedSet.has(inc.id)) continue;
     const prev = map.get(inc.id);
     if (!prev) {
       map.set(inc.id, inc);
@@ -3060,33 +3377,24 @@ function mergeEntitiesById<T extends { id: string; updatedAt?: string; createdAt
   return Array.from(map.values());
 }
 
-app.get('/api/public/cloud-state', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  const db = getDb();
-  res.json({
-    success: true,
-    updatedAt: new Date().toISOString(),
-    db,
-  });
-});
+function mergeIncomingCloudDb(db: DatabaseSchema, incomingDb: any): void {
+  if (!incomingDb || typeof incomingDb !== 'object') return;
+  const combinedDeleted = Array.from(
+    new Set([...(db.deletedIds || []), ...(Array.isArray(incomingDb.deletedIds) ? incomingDb.deletedIds : [])])
+  );
+  const deletedSet = new Set<string>(combinedDeleted);
+  db.deletedIds = combinedDeleted;
 
-app.post('/api/public/cloud-state', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  const incomingDb = req.body?.db;
-  if (!incomingDb || typeof incomingDb !== 'object') {
-    return res.status(400).json({ error: 'Invalid cloud state payload.' });
-  }
-
-  const db = getDb();
-  db.admins = mergeEntitiesById(db.admins, incomingDb.admins || []);
-  db.customers = mergeEntitiesById(db.customers, incomingDb.customers || []);
-  db.domains = mergeEntitiesById(db.domains, incomingDb.domains || []);
-  db.invoices = mergeEntitiesById(db.invoices, incomingDb.invoices || []);
-  db.quotations = mergeEntitiesById(db.quotations, incomingDb.quotations || []);
-  db.payments = mergeEntitiesById(db.payments, incomingDb.payments || []);
-  db.templates = mergeEntitiesById(db.templates, incomingDb.templates || []);
-  db.messageLogs = mergeEntitiesById(db.messageLogs, incomingDb.messageLogs || []).slice(0, 500);
-  db.auditLogs = mergeEntitiesById(db.auditLogs, incomingDb.auditLogs || []).slice(0, 500);
+  db.admins = mergeEntitiesById(db.admins, incomingDb.admins || [], deletedSet);
+  db.customers = mergeEntitiesById(db.customers, incomingDb.customers || [], deletedSet);
+  db.domains = mergeEntitiesById(db.domains, incomingDb.domains || [], deletedSet);
+  db.projects = mergeEntitiesById(db.projects || [], incomingDb.projects || [], deletedSet);
+  db.invoices = mergeEntitiesById(db.invoices, incomingDb.invoices || [], deletedSet);
+  db.quotations = mergeEntitiesById(db.quotations, incomingDb.quotations || [], deletedSet);
+  db.payments = mergeEntitiesById(db.payments, incomingDb.payments || [], deletedSet);
+  db.templates = mergeEntitiesById(db.templates, incomingDb.templates || [], deletedSet);
+  db.messageLogs = mergeEntitiesById(db.messageLogs, incomingDb.messageLogs || [], deletedSet).slice(0, 500);
+  db.auditLogs = mergeEntitiesById(db.auditLogs, incomingDb.auditLogs || [], deletedSet).slice(0, 500);
 
   if (incomingDb.settings?.general) {
     db.settings.general = { ...db.settings.general, ...incomingDb.settings.general };
@@ -3099,7 +3407,70 @@ app.post('/api/public/cloud-state', (req, res) => {
       apiKey: incomingDb.settings.sms.apiKey || existingKey || 'T2J1L49IRJHGGHN0Z6H71D332799EMHVF4P8A4KJ',
     };
   }
+}
 
+// Hydrate & synchronize server DB with real-time ntfy.sh multi-device cloud bus
+async function initServerCloudSync() {
+  try {
+    const res = await fetch('https://ntfy.sh/nexgrid_cloud_db_sync_32da0e27_v2/json?poll=1&since=48h');
+    if (res.ok) {
+      const text = await res.text();
+      const lines = text.split('\n').filter((l) => l.trim().length > 0);
+      const db = getDb();
+      let updated = false;
+      for (const line of lines) {
+        try {
+          const outer = JSON.parse(line);
+          if (outer.event === 'message' && typeof outer.message === 'string') {
+            const payload = JSON.parse(outer.message);
+            if (payload?.compactDb) {
+              mergeIncomingCloudDb(db, payload.compactDb);
+              updated = true;
+            }
+          }
+        } catch {
+          // ignore non-json
+        }
+      }
+      if (updated) {
+        saveDb(db, true);
+      }
+    }
+  } catch {
+    // ignore startup poll error
+  }
+}
+
+initServerCloudSync();
+setInterval(initServerCloudSync, 20000);
+
+app.get('/api/public/cloud-state', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  const db = getDb();
+  res.json({
+    success: true,
+    updatedAt: new Date().toISOString(),
+    db,
+  });
+});
+
+app.post('/api/public/cloud-state', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  let bodyObj = req.body;
+  if (typeof bodyObj === 'string') {
+    try {
+      bodyObj = JSON.parse(bodyObj);
+    } catch {
+      bodyObj = {};
+    }
+  }
+  const incomingDb = bodyObj?.db || bodyObj?.compactDb;
+  if (!incomingDb || typeof incomingDb !== 'object') {
+    return res.status(400).json({ error: 'Invalid cloud state payload.' });
+  }
+
+  const db = getDb();
+  mergeIncomingCloudDb(db, incomingDb);
   saveDb(db, true);
   res.json({ success: true, updatedAt: new Date().toISOString() });
 });

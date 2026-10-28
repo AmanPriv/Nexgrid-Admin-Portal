@@ -2,6 +2,7 @@ import {
   AdminUser,
   Customer,
   Domain,
+  Project,
   Invoice,
   Quotation,
   Payment,
@@ -25,6 +26,24 @@ import {
 const TOKEN_KEY = 'nexgrid_auth_token';
 const CSRF_KEY = 'nexgrid_csrf_token';
 
+// Clear any legacy persistent session tokens on initial app load so that
+// first loading the website on any device ALWAYS requires authentication.
+let inMemoryAuthToken: string | null = null;
+let inMemoryCsrfToken: string | null = null;
+
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(CSRF_KEY);
+    localStorage.removeItem('nexgrid_cms_active_admin_id');
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(CSRF_KEY);
+    sessionStorage.removeItem('nexgrid_cms_active_admin_id');
+  } catch {
+    // ignore storage errors
+  }
+}
+
 let onUnauthorizedHandler: (() => void) | null = null;
 
 export function setUnauthorizedHandler(handler: () => void) {
@@ -32,24 +51,36 @@ export function setUnauthorizedHandler(handler: () => void) {
 }
 
 export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
+  return inMemoryAuthToken;
 }
 
 export function setStoredToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
+  inMemoryAuthToken = token;
 }
 
 export function getStoredCsrf(): string | null {
-  return localStorage.getItem(CSRF_KEY);
+  return inMemoryCsrfToken;
 }
 
 export function setStoredCsrf(token: string) {
-  localStorage.setItem(CSRF_KEY, token);
+  inMemoryCsrfToken = token;
 }
 
 export function clearStoredToken() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(CSRF_KEY);
+  inMemoryAuthToken = null;
+  inMemoryCsrfToken = null;
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(CSRF_KEY);
+      localStorage.removeItem('nexgrid_cms_active_admin_id');
+      sessionStorage.removeItem(TOKEN_KEY);
+      sessionStorage.removeItem(CSRF_KEY);
+      sessionStorage.removeItem('nexgrid_cms_active_admin_id');
+    } catch {
+      // ignore
+    }
+  }
 }
 
 // Configurable API base for external deployment (e.g. Render, Railway, VPS, GitHub Pages)
@@ -314,6 +345,12 @@ export const api = {
   },
 
   async getMe(): Promise<{ admin: AdminUser; csrfToken?: string; timeoutMinutes: number }> {
+    const token = getStoredToken();
+    if (!token) {
+      const err: any = new Error('Authentication required. Please log in.');
+      err.status = 401;
+      throw err;
+    }
     const res = await request<{ admin: AdminUser; csrfToken?: string; timeoutMinutes: number }>('/api/auth/me');
     if (res.csrfToken) setStoredCsrf(res.csrfToken);
     return res;
@@ -530,6 +567,44 @@ export const api = {
     customMessage?: string
   ): Promise<{ success: boolean; messageId: string; status: string; error?: string }> {
     return request(`/api/domains/${id}/send-reminder`, {
+      method: 'POST',
+      body: JSON.stringify({ customMessage }),
+    });
+  },
+
+  // Projects (Project Progress Tracking)
+  async getProjects(search = '', status = 'all'): Promise<{ projects: Project[] }> {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (status) params.set('status', status);
+    return request(`/api/projects?${params.toString()}`);
+  },
+
+  async createProject(projectData: Partial<Project>): Promise<{ project: Project }> {
+    return request('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify(projectData),
+    });
+  },
+
+  async updateProject(id: string, projectData: Partial<Project>): Promise<{ project: Project }> {
+    return request(`/api/projects/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(projectData),
+    });
+  },
+
+  async deleteProject(id: string): Promise<{ success: boolean }> {
+    return request(`/api/projects/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async sendProjectUpdateSms(
+    id: string,
+    customMessage?: string
+  ): Promise<{ success: boolean; messageId: string; status: string; error?: string }> {
+    return request(`/api/projects/${id}/send-update`, {
       method: 'POST',
       body: JSON.stringify({ customMessage }),
     });

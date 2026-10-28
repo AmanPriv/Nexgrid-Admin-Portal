@@ -22,6 +22,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { api, getApiBase, setCustomApiUrl } from '../services/api.ts';
+import { pullCloudDatabaseState } from '../services/cloudSyncEngine.ts';
 import { AdminUser } from '../types.ts';
 
 interface LoginViewProps {
@@ -120,6 +121,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     setCheckingSetup(true);
     setApiConnectionError(null);
     try {
+      await pullCloudDatabaseState().catch(() => {});
       const res = await api.getSetupStatus();
       setSetupRequired(res.setupRequired);
       if (res.setupRequired && res.setupSecret) {
@@ -164,7 +166,14 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     setLoading(true);
 
     try {
-      const res = await api.login(username, password);
+      let res: any;
+      try {
+        res = await api.login(username, password);
+      } catch {
+        // Pull latest cloud state in case user account or password was just created/updated on another device
+        await pullCloudDatabaseState().catch(() => {});
+        res = await api.login(username, password);
+      }
       if (res.mfaRequired && res.mfaToken) {
         setMfaChallenge({
           mfaToken: res.mfaToken,
@@ -176,6 +185,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       }
 
       if (res.token && res.admin) {
+        await pullCloudDatabaseState().catch(() => {});
         onLoginSuccess(res.admin, res.timeoutMinutes || 60);
       }
     } catch (err: any) {

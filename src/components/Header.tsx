@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Database,
   CheckCircle2,
+  FolderKanban,
 } from 'lucide-react';
 import { AdminUser } from '../types.ts';
 import { NavTab } from './Sidebar.tsx';
@@ -29,7 +30,7 @@ interface HeaderProps {
   onOpenMobileSidebar: () => void;
   admin: AdminUser | null;
   onLogout: () => void;
-  onQuickAction: (action: 'customer' | 'domain' | 'invoice' | 'payment') => void;
+  onQuickAction: (action: 'customer' | 'project' | 'domain' | 'invoice' | 'payment') => void;
   timeoutMinutes?: number;
   onRefresh?: () => void;
 }
@@ -136,6 +137,8 @@ export const Header: React.FC<HeaderProps> = ({
         return 'System Overview & Financial Dashboard';
       case 'customers':
         return 'Customer Directory & Profiles';
+      case 'projects':
+        return 'Project Progress & Delivery Tracking';
       case 'domains':
         return 'Domain Registrations & Renewal Tracking';
       case 'invoices':
@@ -340,6 +343,16 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <UserPlus className="w-4 h-4 text-slate-400" />
                     <span>New Customer</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setQuickMenuOpen(false);
+                      onQuickAction('project');
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 hover:text-blue-600 text-left transition-colors"
+                  >
+                    <FolderKanban className="w-4 h-4 text-slate-400" />
+                    <span>New Project</span>
                   </button>
                   <button
                     onClick={() => {
