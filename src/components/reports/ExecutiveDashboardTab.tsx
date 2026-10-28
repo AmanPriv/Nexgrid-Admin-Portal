@@ -376,6 +376,11 @@ export const ExecutiveDashboardTab: React.FC<ExecutiveDashboardTabProps> = ({
       { label: 'Resource Utilization', value: `${kpis.utilizationPct}%` },
       { label: 'Client Retention', value: `${kpis.retentionPct}%` },
     ],
+    chartPoints: sortedPeriodSummaries.map((r) => ({
+      label: r.periodLabel,
+      value: r.invoicedRevenue,
+      secondaryValue: r.collectedRevenue,
+    })),
     companySettings,
   });
 
@@ -404,6 +409,11 @@ export const ExecutiveDashboardTab: React.FC<ExecutiveDashboardTabProps> = ({
       `${f.capacityUtilizationPct}%`,
       f.confidenceLevel,
     ]),
+    chartPoints: sortedForecasts.map((f) => ({
+      label: f.horizonMonth,
+      value: f.projectedRevenue,
+      secondaryValue: f.committedRecurringRevenue,
+    })),
     companySettings,
   });
 
@@ -563,10 +573,10 @@ export const ExecutiveDashboardTab: React.FC<ExecutiveDashboardTabProps> = ({
             <button
               type="button"
               onClick={() => exportReportToPdf(buildPeriodExportPayload())}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-2xs transition-colors"
             >
-              <FileText className="w-3.5 h-3.5 text-blue-600" />
-              <span>PDF</span>
+              <FileText className="w-3.5 h-3.5" />
+              <span>Download as PDF</span>
             </button>
             <button
               type="button"
@@ -791,10 +801,10 @@ export const ExecutiveDashboardTab: React.FC<ExecutiveDashboardTabProps> = ({
             <button
               type="button"
               onClick={() => exportReportToPdf(buildForecastExportPayload())}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-2xs transition-colors"
             >
-              <FileText className="w-3.5 h-3.5 text-blue-600" />
-              <span>PDF</span>
+              <FileText className="w-3.5 h-3.5" />
+              <span>Download as PDF</span>
             </button>
             <button
               type="button"

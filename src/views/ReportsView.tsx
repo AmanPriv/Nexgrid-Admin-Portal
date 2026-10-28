@@ -35,7 +35,12 @@ import {
   resolveCompanyProfile,
   DEFAULT_COMPANY_PROFILE,
 } from '../utils/pdfGenerator.ts';
-import { exportReportToExcel } from '../utils/reportExports.ts';
+import {
+  exportReportToExcel,
+  exportReportToPdf,
+  exportReportToCsv,
+  TabularExportOptions,
+} from '../utils/reportExports.ts';
 import { PaymentQrCode } from '../components/PaymentQrCode.tsx';
 import { EmailConfirmationModal } from '../components/EmailConfirmationModal.tsx';
 import {
@@ -47,6 +52,10 @@ import {
 } from '../types/reporting.ts';
 import { ReportFilterBar } from '../components/reports/ReportFilterBar.tsx';
 import { ExecutiveDashboardTab } from '../components/reports/ExecutiveDashboardTab.tsx';
+import {
+  CategoryReportTabs,
+  buildCategorySubReports,
+} from '../components/reports/CategoryReportTabs.tsx';
 import { ScheduledReportsModal } from '../components/reports/ScheduledReportsModal.tsx';
 import { ClientSafeShareModal } from '../components/reports/ClientSafeShareModal.tsx';
 
@@ -234,6 +243,85 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ currentAdmin }) => {
     ];
   }, [currentAdmin]);
 
+  const buildCurrentViewExportPayload = (): TabularExportOptions => {
+    const catMeta =
+      REPORT_CATEGORIES.find((c) => c.id === activeCategory) || REPORT_CATEGORIES[0];
+
+    if (activeCategory === 'executive') {
+      const trend = data?.monthlyTrend || [];
+      return {
+        reportTitle: `${catMeta.label} — Financial & Operations Summary`,
+        subtitle: `Date Range: ${filters.startDate} to ${filters.endDate} | Client: ${filters.clientId} | Role: ${activeRoleLens.toUpperCase()}`,
+        filenamePrefix: `nexgrid-executive-dashboard`,
+        headers: [
+          'Month / Period',
+          `Invoiced (${company.currency})`,
+          `Collected (${company.currency})`,
+          `Est. Cost (${company.currency})`,
+          `Net Margin (${company.currency})`,
+        ],
+        rows: trend.map((m) => {
+          const cost = Math.round((Number(m.invoiced) || 0) * 0.32);
+          const margin = Math.max(0, (Number(m.invoiced) || 0) - cost);
+          return [m.month, m.invoiced, m.collected, cost, margin];
+        }),
+        kpis: [
+          {
+            label: 'Total Invoiced Revenue',
+            value: `${Number(fin.totalInvoiced || 0).toLocaleString()} ${company.currency}`,
+          },
+          {
+            label: 'Confirmed Collections',
+            value: `${Number(fin.totalReceived || 0).toLocaleString()} ${company.currency}`,
+          },
+          {
+            label: 'Outstanding Receivables',
+            value: `${Number(fin.outstandingReceivables || 0).toLocaleString()} ${company.currency}`,
+          },
+          {
+            label: 'Active Managed Domains',
+            value: String(data?.domainHealth?.total || domains.length),
+          },
+        ],
+        chartPoints: trend.map((m) => ({
+          label: m.month,
+          value: Number(m.invoiced || 0),
+          secondaryValue: Number(m.collected || 0),
+        })),
+        companySettings,
+      };
+    }
+
+    const subReports = buildCategorySubReports({
+      category: activeCategory,
+      customers,
+      domains,
+      invoices,
+      payments,
+      quotations,
+      filters,
+      roleLens: activeRoleLens,
+      currency: company.currency,
+      currentAdminName: currentAdmin?.fullName,
+    });
+    const firstSub = subReports[0];
+
+    return {
+      reportTitle: `${catMeta.label} — ${firstSub?.label || 'Report'}`,
+      subtitle: `Date Range: ${filters.startDate} to ${filters.endDate} | Role: ${activeRoleLens.toUpperCase()}`,
+      filenamePrefix: `nexgrid-${activeCategory}-report`,
+      headers: firstSub?.headers || ['Item', 'Value'],
+      rows: firstSub?.rows || [],
+      kpis: firstSub?.kpis || [],
+      chartPoints: firstSub?.chartPoints || [],
+      companySettings,
+    };
+  };
+
+  const downloadCurrentViewAsPdf = () => {
+    exportReportToPdf(buildCurrentViewExportPayload());
+  };
+
   const downloadReportPdf = () => {
     const reportPayload = data || {
       monthlyTrend: [],
@@ -246,23 +334,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ currentAdmin }) => {
   };
 
   const downloadReportExcel = () => {
-    exportReportToExcel({
-      reportTitle: 'Executive Financial Summary & Operations Report',
-      subtitle: `Date Range: ${filters.startDate} to ${filters.endDate}`,
-      filenamePrefix: 'nexgrid-executive-financial-summary',
-      headers: ['Month / Period', `Invoiced (${company.currency})`, `Collected (${company.currency})`],
-      rows: (data?.monthlyTrend || []).map((m) => [m.month, m.invoiced, m.collected]),
-      kpis: [
-        { label: 'Total Invoiced Revenue', value: `${Number(fin.totalInvoiced || 0).toLocaleString()} ${company.currency}` },
-        { label: 'Confirmed Collections', value: `${Number(fin.totalReceived || 0).toLocaleString()} ${company.currency}` },
-        { label: 'Outstanding Receivables', value: `${Number(fin.outstandingReceivables || 0).toLocaleString()} ${company.currency}` },
-        { label: 'Critical Overdue Balance', value: `${Number(fin.overdueAmount || 0).toLocaleString()} ${company.currency}` },
-      ],
-      companySettings,
-    });
+    exportReportToExcel(buildCurrentViewExportPayload());
   };
 
   const downloadReportCsv = () => {
+    if (activeCategory !== 'executive') {
+      exportReportToCsv(buildCurrentViewExportPayload());
+      return;
+    }
     const reportDate = new Date().toISOString().slice(0, 10);
     const rows: string[] = [
       `"NEXGRID DIGITAL SYSTEMS — EXECUTIVE FINANCIAL SUMMARY REPORT","Generated: ${reportDate}"`,
@@ -393,11 +472,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ currentAdmin }) => {
 
           <button
             type="button"
-            onClick={downloadReportPdf}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-2xs transition-colors"
+            onClick={downloadCurrentViewAsPdf}
+            title={`Download ${currentCategoryMeta.shortLabel} Report as PDF`}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shadow-2xs transition-colors"
           >
             <FileText className="w-3.5 h-3.5" />
-            <span>PDF</span>
+            <span>Download as PDF</span>
           </button>
 
           <button
@@ -512,15 +592,6 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ currentAdmin }) => {
               >
                 {!allowed && <Lock className="w-3 h-3 text-slate-300" />}
                 <span>{cat.shortLabel}</span>
-                {cat.phase > 1 && (
-                  <span
-                    className={`text-[10px] font-mono ${
-                      isActive ? 'text-blue-300' : 'text-slate-400'
-                    }`}
-                  >
-                    · P{cat.phase}
-                  </span>
-                )}
               </button>
             );
           })}
@@ -574,35 +645,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ currentAdmin }) => {
           companySettings={companySettings}
         />
       ) : (
-        /* Phase 2 & Phase 3 Category Architecture Preview */
-        <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-xs text-blue-700 font-semibold">
-                <Layers className="w-4 h-4" />
-                <span>Phase {currentCategoryMeta.phase} Reporting Module Ready for Activation</span>
-              </div>
-              <h3 className="text-base font-bold text-slate-900">{currentCategoryMeta.label}</h3>
-              <p className="text-xs text-slate-500">{currentCategoryMeta.description}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveCategory('executive')}
-              className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shrink-0"
-            >
-              Return to Executive Dashboard (Phase 1)
-            </button>
-          </div>
-
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-700 space-y-2">
-            <div className="font-bold text-slate-900">
-              Phase 1 Complete — Awaiting Confirmation for Phase {currentCategoryMeta.phase}
-            </div>
-            <p className="leading-relaxed">
-              Per your phased rollout plan, <strong>Phase 1</strong> (Page structure, Global Filters, PDF/Excel/CSV Exports, Scheduled Email Reports, Client-Safe Sharing, RBAC Role Controls, and the complete <strong>Executive Dashboard</strong>) is live and active. Confirm when you are ready to proceed to <strong>Phase 2</strong> (Financial & Project Delivery Reports) and <strong>Phase 3</strong> (Time & Resource, Sales & Client, Team & HR, Quality & Technical, Support & Maintenance, and Admin & Compliance).
-            </p>
-          </div>
-        </div>
+        <CategoryReportTabs
+          category={activeCategory}
+          customers={customers}
+          domains={domains}
+          invoices={invoices}
+          payments={payments}
+          quotations={quotations}
+          filters={filters}
+          roleLens={activeRoleLens}
+          companySettings={companySettings}
+          currentAdminName={currentAdmin?.fullName}
+        />
       )}
 
       {/* Scheduled Email Reports Modal */}
